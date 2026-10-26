@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 #include "sql/engine/expr/ob_expr_ai/ob_ai_func_utils.h"
 
 using namespace oceanbase::common;
@@ -32,6 +33,34 @@ protected:
 
   ObArenaAllocator allocator_;
 };
+
+class RecordingAllocator : public ObWrapperAllocator
+{
+public:
+  explicit RecordingAllocator(ObIAllocator &allocator) : ObWrapperAllocator(allocator) {}
+  void free(void *pointer) override
+  {
+    freed.push_back(pointer);
+    ObWrapperAllocator::free(pointer);
+  }
+  std::vector<void *> freed;
+};
+
+TEST_F(AIFunctionRegression, serialized_json_retains_its_allocation)
+{
+  ObJsonObject *object = parse(R"({"text":"persistent result"})");
+  ASSERT_NE(nullptr, object);
+  RecordingAllocator tracked(allocator_);
+  ObString output;
+  ASSERT_EQ(OB_SUCCESS, ObAIFuncJsonUtils::print_json_to_str(tracked, object, output));
+  ASSERT_NE(nullptr, output.ptr());
+  for (void *freed : tracked.freed) {
+    EXPECT_NE(freed, output.ptr()) << "serialization returned an already freed buffer";
+  }
+  EXPECT_NE(std::string::npos,
+      std::string(output.ptr(), output.length()).find("persistent result"));
+  tracked.free(output.ptr());
+}
 
 TEST_F(AIFunctionRegression, repeated_placeholder_uses_full_output_size)
 {
@@ -153,6 +182,22 @@ TEST_F(AIFunctionRegression, dashscope_embedding_rejects_malformed_shapes)
     ASSERT_NE(nullptr, response);
     ObIJsonBase *result = nullptr;
     EXPECT_EQ(OB_INVALID_DATA, provider.parse_output(allocator_, response, result));
+  }
+}
+
+TEST_F(AIFunctionRegression, dashscope_completion_rejects_malformed_shapes)
+{
+  ObDashscopeUtils::ObDashscopeComplete provider;
+  for (const char *json : {
+      R"({"output":[]})", R"({"output":{"choices":{}}})",
+      R"({"output":{"choices":[]}})", R"({"output":{"choices":[12]}})",
+      R"({"output":{"choices":[{"message":12}]}})",
+      R"({"output":{"choices":[{"message":{"content":{}}}]}})",
+      R"({"output":{"choices":[{"message":{"content":""}}}]}})"}) {
+    ObJsonObject *response = parse(json);
+    ASSERT_NE(nullptr, response);
+    ObIJsonBase *result = nullptr;
+    EXPECT_NE(OB_SUCCESS, provider.parse_output(allocator_, response, result));
   }
 }
 

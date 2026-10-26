@@ -56,6 +56,10 @@ class ModelHandler(BaseHTTPRequestHandler):
                 if not isinstance(text, str):
                     raise ValueError("content must be text")
                 result = {"choices": [{"message": {"content": text}}]}
+                if text == "__bad_root_array__":
+                    result = []
+                elif text == "__bad_root_scalar__":
+                    result = "invalid response root"
             elif self.path == "/api/generate":
                 if body.get("stream") is not False:
                     raise ValueError("stream must be false")
@@ -76,6 +80,8 @@ class ModelHandler(BaseHTTPRequestHandler):
                                        for i in reversed(range(len(texts)))]}
                 if "__bad_shape__" in texts:
                     result = {"data": {}, "embeddings": {}}
+                elif "__bad_root_array__" in texts:
+                    result = []
                 elif "__bad_dimension__" in texts:
                     if self.path == "/api/embed":
                         result["embeddings"][0].append(0)

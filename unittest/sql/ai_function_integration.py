@@ -72,6 +72,9 @@ class Regression:
         left, right = value.split("|")
         assert json.loads(left) == {"k": "v"} and json.loads(right) == [1, True]
         assert self.complete(ollama, literal("Ollama 你好")) == "Ollama 你好"
+        for bad in ("__bad_root_array__", "__bad_root_scalar__"):
+            self.sql(f"SELECT AI_COMPLETE({complete},{literal(bad)},NULL);", error=True)
+            assert self.sql("SELECT 1;") == "1", "Server unavailable after malformed response"
         print("PASS prompt / LONGTEXT / JSON / completion / Ollama", flush=True)
 
         for provider in (embed, ollama_embed):
@@ -81,7 +84,7 @@ class Regression:
                 before = len(self.server.snapshot())
                 self.sql(f"SELECT AI_EMBED({provider},'single',{dimension});", error=True)
                 assert len(self.server.snapshot()) == before, "Invalid dimension reached the model"
-            for bad in ("__bad_shape__", "__bad_dimension__"):
+            for bad in ("__bad_shape__", "__bad_dimension__", "__bad_root_array__"):
                 self.sql(f"SELECT AI_EMBED({provider},'{bad}',4);", error=True)
         print("PASS embedding dimensions / malformed responses", flush=True)
 

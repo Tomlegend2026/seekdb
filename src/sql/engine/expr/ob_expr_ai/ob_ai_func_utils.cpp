@@ -655,24 +655,16 @@ int ObDashscopeUtils::ObDashscopeComplete::parse_output(ObIAllocator &allocator,
   if (OB_ISNULL(http_response)) {
     ret = OB_INVALID_ARGUMENT;
   } else {
-    ObJsonObject *output_obj = nullptr;
-    ObJsonArray *choices_array = nullptr;
-    ObJsonObject *choice_obj = nullptr;
-    ObJsonObject *message_obj = nullptr;
-    ObJsonString *content_str = nullptr;
-    ObString response_str;
-    if (OB_ISNULL(output_obj = static_cast<ObJsonObject *>(http_response->get_value("output")))) {
-      ret = OB_INVALID_DATA;
-    } else if (OB_ISNULL(choices_array = static_cast<ObJsonArray *>(output_obj->get_value("choices")))) {
-      ret = OB_INVALID_DATA;
-    } else if (OB_ISNULL(choice_obj = static_cast<ObJsonObject *>(choices_array->get_value(0)))) {
-      ret = OB_INVALID_DATA;
-    } else if (OB_ISNULL(message_obj = static_cast<ObJsonObject *>(choice_obj->get_value("message")))) {
-      ret = OB_INVALID_DATA;
-    } else if (OB_ISNULL(content_str = static_cast<ObJsonString *>(message_obj->get_value("content")))) {
+    ObString path_text("$.output.choices[0].message.content");
+    ObJsonPath path(path_text, &allocator);
+    ObJsonSeekResult hit;
+    if (OB_FAIL(path.parse_path())) {
+    } else if (OB_FAIL(http_response->seek(path, path.path_node_cnt(), false, false, hit))) {
+    } else if (hit.size() != 1 || OB_ISNULL(hit[0])
+        || hit[0]->json_type() != ObJsonNodeType::J_STRING || hit[0]->get_data_length() == 0) {
       ret = OB_INVALID_DATA;
     } else {
-      result = content_str;
+      result = hit[0];
     }
   }
   return ret;
@@ -1123,7 +1115,8 @@ int ObAIFuncJsonUtils::print_json_to_str(ObIAllocator &allocator, ObIJsonBase *b
     ret = OB_INVALID_ARGUMENT;
   } else if (OB_FAIL(base_node->print(j_buf, 0))) {
   } else {
-    str = j_buf.string();
+    // The caller retains the serialized value after this local buffer dies.
+    ret = j_buf.get_result_string(str);
   }
   return ret;
 }

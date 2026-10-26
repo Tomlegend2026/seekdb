@@ -11,10 +11,11 @@ import subprocess
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
+    parser.add_argument("--source-root", type=Path, help="Check a second checkout with the same headers.")
     parser.add_argument("--file", action="append", help="Check only this source (repeatable).")
     args = parser.parse_args()
     build_dir = args.build_dir.resolve()
-    source = build_dir.parent
+    source = (args.source_root or build_dir.parent).resolve()
     commands = json.loads((build_dir / "compile_commands.json").read_text())
     template = next(entry for entry in commands if "/src/sql/" in entry["file"])
     original = template.get("arguments") or shlex.split(template["command"])
@@ -31,6 +32,7 @@ def main():
     files = [
         "src/share/ai_service/ob_ai_service_struct.cpp",
         "src/sql/engine/expr/ob_expr_ai/ob_ai_func_utils.cpp",
+        "src/sql/engine/expr/ob_expr_ai/ob_ai_func_client.cpp",
         "src/sql/engine/expr/ob_expr_ai/ob_expr_ai_prompt.cpp",
         "src/sql/engine/expr/ob_expr_ai/ob_expr_ai_complete.cpp",
         "src/sql/engine/expr/ob_expr_ai/ob_expr_ai_embed.cpp",
