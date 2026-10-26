@@ -1,0 +1,78 @@
+{
+  "scope": "word grouping microbenchmark only; not official FTS score",
+  "baseline": [
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 627907464,
+      "ns_per_token": 156.977,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 583247673,
+      "ns_per_token": 145.812,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 625768375,
+      "ns_per_token": 156.442,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 568824687,
+      "ns_per_token": 142.206,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 603828076,
+      "ns_per_token": 150.957,
+      "correctness": true
+    }
+  ],
+  "candidate": [
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 266194687,
+      "ns_per_token": 66.549,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 274015156,
+      "ns_per_token": 68.504,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 294093698,
+      "ns_per_token": 73.523,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 275797278,
+      "ns_per_token": 68.949,
+      "correctness": true
+    },
+    {
+      "benchmark": "fts_word_grouping",
+      "tokens": 4000000,
+      "elapsed_ns": 321561589,
+      "ns_per_token": 80.39,
+      "correctness": true
+    }
+  ],
+  "median_speedup": 2.189390991741405
+}

@@ -50,8 +50,8 @@ class Regression:
     def complete(self, model, prompt, config="NULL"):
         output = self.sql(f"SELECT HEX(AI_COMPLETE({model},{prompt},{config}));")
         decoded = bytes.fromhex(output).decode("utf-8")
-        # Current seekdb serializes the model's JSON string as its SQL result.
-        return json.loads(decoded)
+        # Completion exposes model text as SQL text, without JSON string quotes.
+        return decoded
 
     def run(self):
         complete = self.model("complete", "completion", "openai", "/v1/chat/completions")
@@ -59,6 +59,7 @@ class Regression:
         rerank = self.model("rerank", "rerank", "siliconflow", "/v1/rerank")
         ollama = self.model("ollama", "completion", "oLlAmA", "/api/generate")
         ollama_embed = self.model("ollama_embed", "dense_embedding", "OLLAMA", "/api/embed")
+        assert self.complete(complete, literal("smoke")) == "smoke"
 
         text = "你好\\\"\n" + "x" * 70000
         self.sql(f"CREATE TABLE {self.table}(id INT PRIMARY KEY, content LONGTEXT);")

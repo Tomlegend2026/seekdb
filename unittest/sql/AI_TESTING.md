@@ -15,11 +15,11 @@ python3 unittest/sql/check_ai_sources.py --build-dir build_release
 
 `check_ai_sources.py` 从实际构建目录读取编译参数，检查七个实现文件和 C++ 回归测试。它只证明语法与类型检查通过，不执行测试，不验证链接或 SQL 行为。
 
-2026-10-26：原有七个文件通过 Clang 17 / C++20 检查；新增 HTTP 客户端检查另行执行。Rust 工作区依赖构建通过。完整构建仍未完成。
+2026-10-26：八个文件通过 Clang 17 / C++20 检查；Rust 工作区、完整 seekdb 可执行程序及 C++ 回归目标均构建成功。14 项 AI C++ 回归已运行通过。
 
 进一步修复 JSON 序列化返回局部缓冲区的问题，并增加记录释放地址的回归测试，防止常见的 arena 分配器掩盖提前释放。HTTP 请求使用 libcurl 复制请求体，避免局部 JSON 缓冲区析构后仍被引用；单次及批量 HTTP 响应在转换成对象前检查根节点类型。
 
-新增的 `unittest/CMakeLists.txt` 已通过生产 CMake 配置，可在完整依赖编译后链接并运行 C++ 测试：
+新增的 `unittest/CMakeLists.txt` 接入生产共享库，以下检查已实际执行通过：
 
 ```sh
 cmake --build build_release --target ai_function_regression -j2
@@ -49,9 +49,19 @@ python3 unittest/sql/ai_function_integration.py --mysql-client /path/to/mysql --
 
 也可独立启动 `ai_function_mock.py --port 8000`，供现有 `ai_function_enhancement` mysqltest 使用。
 
-## 尚未完成的验证
+## 已完成的 SQL 联调
 
-- `test_ai_function_regression.cpp` 尚未链接运行。本队已补上独立 CMake 入口，等待生产共享库构建完成。
-- `ai_function_integration.py` 尚未对修改后编译的数据库运行。
-- 新增的 `ai_prompt_regression.test` 尚未运行。
-- 未重新提测，未声称平台得分或全部 seekdb 赛题已完成。
+2026-10-26，在修改后编译的原生 seekdb、独立目录 `/home/tom/oceanbase2026-test-instance-v2` 和端口 2882 上执行 `ai_function_integration.py --port 2882`，全部检查通过。
+
+- LONGTEXT / JSON / 嵌套提示 / OpenAI Completion / Ollama：通过。
+- 单行 Embedding、显式维度、无效维度在 HTTP 前拒绝、错误响应及向量维度：通过。
+- 130 行输入、NULL 跳过、输入输出逐行核对：通过，实际为 2 次 HTTP 请求，每次不超过 64 条有效输入。
+- 61 篇文档跨不等长批次 Rerank、全局索引、稳定并列排序和对象映射：通过。
+
+首次联调发现测试脚本错误地把 Completion 的原始 SQL 文本再当 JSON 字符串解析；已修正测试，随后完整重跑通过。
+
+新建测试实例应使用 `memory_budget=2G`，不是已废弃且不控制实际预算的 `memory_limit`；`log_disk_size` 至少 2G。本实例仅用于源码验证，不替代报名使用的 Docker UUID。
+
+同日，通过 mysql 客户端执行独立 `ai_prompt_regression.test` 中的 SQL，并精确核对六行输出：`ARRAY`、`OBJECT`、`inner {0}`、`70000`、`70000`、`E4BDA0`，通过。没有运行 mysqltest 调度器。
+
+尚未重新提测，未声称平台得分或全部 seekdb 赛题完成。

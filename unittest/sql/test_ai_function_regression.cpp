@@ -193,7 +193,7 @@ TEST_F(AIFunctionRegression, dashscope_completion_rejects_malformed_shapes)
       R"({"output":{"choices":[]}})", R"({"output":{"choices":[12]}})",
       R"({"output":{"choices":[{"message":12}]}})",
       R"({"output":{"choices":[{"message":{"content":{}}}]}})",
-      R"({"output":{"choices":[{"message":{"content":""}}}]}})"}) {
+      R"({"output":{"choices":[{"message":{"content":""}}]}})"}) {
     ObJsonObject *response = parse(json);
     ASSERT_NE(nullptr, response);
     ObIJsonBase *result = nullptr;

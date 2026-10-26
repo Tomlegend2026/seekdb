@@ -13,5 +13,14 @@ target_link_libraries(fts_word_regression PRIVATE
   oceanbase ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)
 add_test(NAME fts_word_regression COMMAND fts_word_regression)
 
+add_executable(file_scan_utils_regression
+  sql/test_file_scan_utils.cpp
+  ${PROJECT_SOURCE_DIR}/src/sql/engine/basic/file_scan_utils.cpp)
+target_include_directories(file_scan_utils_regression PRIVATE
+  ${PROJECT_SOURCE_DIR}/src ${DEP_DIR}/include)
+target_link_libraries(file_scan_utils_regression PRIVATE
+  ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)
+add_test(NAME file_scan_utils_regression COMMAND file_scan_utils_regression)
+
 add_executable(fts_word_benchmark storage/benchmark_fts_word.cpp)
 target_link_libraries(fts_word_benchmark PRIVATE oceanbase Threads::Threads)

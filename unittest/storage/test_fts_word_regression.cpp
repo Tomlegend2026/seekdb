@@ -87,9 +87,10 @@ TEST(FTSWordRegression, grouping_reports_uninitialized_map)
 
 TEST(FTSWordRegression, stopwords_match_in_same_and_different_collations)
 {
+  ASSERT_EQ(OB_SUCCESS, ObCharset::init_charset());
   ObStopWordChecker checker;
   ASSERT_EQ(OB_SUCCESS, checker.init());
-  for (auto collation : {CS_TYPE_UTF8MB4_GENERAL_CI, CS_TYPE_UTF8MB4_BIN, CS_TYPE_LATIN1_SWEDISH_CI}) {
+  for (auto collation : {CS_TYPE_UTF8MB4_GENERAL_CI, CS_TYPE_UTF8MB4_BIN, CS_TYPE_BINARY}) {
     const ObObjMeta meta = text_meta(collation);
     for (const char *word : {"the", "THE", "from", "FROM"}) {
       bool stopped = false;
@@ -102,5 +103,9 @@ TEST(FTSWordRegression, stopwords_match_in_same_and_different_collations)
       EXPECT_FALSE(stopped);
     }
   }
+  bool stopped = false;
+  const ObObjMeta unsupported = text_meta(CS_TYPE_LATIN1_SWEDISH_CI);
+  EXPECT_EQ(OB_INVALID_ARGUMENT,
+      checker.check_stopword(ObFTWord(3, "the", unsupported), stopped));
 }
 } // namespace
