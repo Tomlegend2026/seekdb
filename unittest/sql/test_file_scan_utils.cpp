@@ -252,6 +252,7 @@ TEST(FileScanSchema, width_errors_do_not_publish_partial_schema)
   CsvSchema schema;
   Diagnostic diagnostic;
   EXPECT_EQ(Status::INVALID, infer_csv_schema(input, {}, schema, diagnostic));
+  EXPECT_EQ(3U, diagnostic.line);
   EXPECT_TRUE(schema.names.empty());
   EXPECT_EQ(3u, diagnostic.record);
   EXPECT_NE(std::string::npos, diagnostic.message.find("width"));

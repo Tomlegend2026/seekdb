@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
 #include "sql/engine/basic/file_scan_file.h"
+#include "sql/engine/basic/file_scan_cursor.h"
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
@@ -150,4 +151,75 @@ TEST_F(SecureFileTest, RevalidatesBeforeReadingAnotherBuffer)
   file.stream().ignore(64 * 1024);
   EXPECT_TRUE(file.stream().bad());
   EXPECT_EQ(Status::IO_ERROR, file.validate());
+}
+
+TEST_F(SecureFileTest, CursorRescanPreservesFullSchemaAndSkipsHeader)
+{
+  write("allowed/sub/data.csv", "id,value\n1,7\n2,3.5\n");
+  QueryOptions options;
+  options.path = "sub/data.csv";
+  FileCursor cursor;
+  ASSERT_EQ(Status::OK, cursor.prepare(policy, options));
+  EXPECT_EQ((std::vector<Type>{Type::BIGINT, Type::DOUBLE}), cursor.schema().types);
+  EXPECT_EQ(2U, cursor.schema().row_count);
+  const auto fingerprint = cursor.fingerprint();
+  ASSERT_FALSE(fingerprint.empty());
+  for (int pass = 0; pass < 2; ++pass) {
+    std::vector<Field> row;
+    ASSERT_EQ(Status::OK, cursor.next(row));
+    ASSERT_EQ(2U, row.size());
+    EXPECT_EQ("1", row[0].text);
+    ASSERT_EQ(Status::OK, cursor.next(row));
+    EXPECT_EQ("3.5", row[1].text);
+    EXPECT_EQ(Status::END, cursor.next(row));
+    EXPECT_TRUE(row.empty());
+    ASSERT_EQ(Status::OK, cursor.rewind());
+    EXPECT_EQ(fingerprint, cursor.fingerprint());
+  }
+}
+
+TEST_F(SecureFileTest, CursorJsonProjectsUnionAndMissingFieldsAcrossRescans)
+{
+  write("allowed/sub/data.jsonl", "{\"id\":1}\n{\"id\":2,\"late\":true}\n");
+  QueryOptions options;
+  options.path = "sub/data.jsonl";
+  options.json = true;
+  FileCursor cursor;
+  ASSERT_EQ(Status::OK, cursor.prepare(policy, options));
+  ASSERT_EQ(2U, cursor.schema().names.size());
+  for (int pass = 0; pass < 2; ++pass) {
+    std::vector<Field> row;
+    ASSERT_EQ(Status::OK, cursor.next(row));
+    EXPECT_TRUE(row[1].is_null);
+    ASSERT_EQ(Status::OK, cursor.next(row));
+    EXPECT_EQ("true", row[1].text);
+    ASSERT_EQ(Status::END, cursor.next(row));
+    ASSERT_EQ(Status::OK, cursor.rewind());
+  }
+}
+
+TEST_F(SecureFileTest, CursorDetectsChangeBetweenInferenceAndFirstOutput)
+{
+  QueryOptions options;
+  options.path = "sub/data.csv";
+  FileCursor cursor;
+  ASSERT_EQ(Status::OK, cursor.prepare(policy, options));
+  write("allowed/sub/data.csv", "id,name\n2,bobby\n");
+  std::vector<Field> row;
+  EXPECT_EQ(Status::IO_ERROR, cursor.next(row));
+  EXPECT_TRUE(row.empty());
+  EXPECT_EQ(Status::IO_ERROR, cursor.rewind());
+}
+
+TEST_F(SecureFileTest, FailedPrepareCannotReviveAnOldSchema)
+{
+  QueryOptions options;
+  options.path = "sub/data.csv";
+  FileCursor cursor;
+  ASSERT_EQ(Status::OK, cursor.prepare(policy, options));
+  write("allowed/sub/data.csv", "id,name\n1,bad,extra\n");
+  EXPECT_EQ(Status::INVALID, cursor.prepare(policy, options));
+  EXPECT_EQ(Status::INVALID, cursor.rewind());
+  std::vector<Field> row;
+  EXPECT_EQ(Status::INVALID, cursor.next(row));
 }

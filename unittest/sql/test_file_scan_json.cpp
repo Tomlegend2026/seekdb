@@ -134,6 +134,9 @@ TEST(FileScanJson, BoundsRecordSizeAndReportsIoErrors)
   broken.setstate(std::ios::badbit);
   JsonReader bad(broken, {});
   EXPECT_EQ(Status::IO_ERROR, bad.next(row));
+  std::istringstream huge_key("{\"" + std::string(257, 'k') + "\":1}");
+  JsonReader oversized(huge_key, {});
+  EXPECT_EQ(Status::INVALID, oversized.next(row));
 }
 
 TEST(FileScanJson, EmptyInputAndObjectsDoNotCreateZeroColumnTables)

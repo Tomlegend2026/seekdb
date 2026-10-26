@@ -275,11 +275,23 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
       candidate.names.push_back("column" + std::to_string(i + 1));
     }
   }
+  for (const auto &name : candidate.names) {
+    if (name.size() > 256) {
+      diagnostic = reader.diagnostic();
+      diagnostic.message = "CSV column name exceeds 256 bytes";
+      return Status::LIMIT;
+    }
+  }
   candidate.types.resize(row.size(), Type::NULL_VALUE);
-  if (options.header) { status = reader.next(row); }
+  uint64_t record_start_line = 1;
+  if (options.header) {
+    record_start_line = reader.diagnostic().line;
+    status = reader.next(row);
+  }
   while (status == Status::OK) {
     if (row.size() != candidate.names.size()) {
       diagnostic = reader.diagnostic();
+      diagnostic.line = record_start_line;
       diagnostic.message = "CSV record width differs from inferred column count";
       return Status::INVALID;
     }
@@ -287,6 +299,7 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
       candidate.types[i] = widen(candidate.types[i], infer_type(row[i]));
     }
     ++candidate.row_count;
+    record_start_line = reader.diagnostic().line;
     status = reader.next(row);
   }
   if (status != Status::END) {

@@ -1,6 +1,6 @@
 # FileSQL 扫描基础
 
-当前完成 CSV / JSONL 流式读取、全量类型推断和安全文件流工具，**尚未接入 seekdb SQL 解析、元数据和执行入口，不算本题完成**。Parquet、glob、COPY 和原生 SQL 接入仍未完成。
+当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流及 seekdb 原生 SQL 接入，并通过真实 SQL 联调。**整题尚未完成**：Parquet、glob、COPY 和 DESCRIBE 返回列元数据仍未实现。
 
 实现位于 `src/sql/engine/basic/file_scan_utils.{h,cpp}`。读取器只保留一条记录；全量推断保留列结构和当前记录，支持重开文件后进入第二遍执行扫描。文件必须由后续安全层校验并打开；该工具不自行打开路径。
 
@@ -19,7 +19,32 @@ ctest --test-dir build_release -R file_scan_utils_regression --output-on-failure
 - BIGINT 边界、浮点非有限值、日期闰年和时间边界、空列、类型宽化顺序无关。
 - 全量推断包含末尾记录、无表头首行、字段数不一致时拒绝发布部分结构、重复表头名称避让。
 
-后续 SQL 接入必须先检查默认关闭的功能开关和 `secure_file_priv`；每次批量取数核验文件身份及变化，并通过原生算子执行过滤、聚合、排序和 JOIN。
+原生 SQL 接入先检查默认关闭的功能开关和 `secure_file_priv`，通过原生算子执行过滤、聚合、排序和 JOIN。
+
+## 原生 SQL 接入与实测
+
+2026-10-26：完整 seekdb 构建通过。新增 `enable_file_sql`，默认 OFF；启用后要求 FILE 权限和非空的绝对 `secure_file_priv`。读取函数以原生 JSON_TABLE 逻辑算子承载动态列，并在执行器中流式输出类型化的行；过滤、分组、排序和 JOIN 继续由 seekdb 执行。未调用任何外部 SQL 引擎。
+
+支持 `read_csv`、`read_json` / `read_ndjson`、别名，以及 CSV 的 header / delim / delimiter / quote / escape / nullstr 选项。JSONL 的 format 支持 newline_delimited；sample_size 仅接受 -1。所有读取参数须为静态标量表达式，拒绝依赖数据行和子查询。单个列名最多 256 字节。
+
+解析阶段完整推断列信息，执行阶段重新完整核验文件内容指纹和结构，再重扫输出；全程只保留列信息与当前记录。文件计划禁止加入计划缓存。执行前、每行输出前后及重扫前校验文件，异常在 SQL 客户端返回记录号、物理行号及原因。
+
+```sh
+python3 unittest/sql/file_sql_integration.py \
+  --socket /home/tom/oceanbase2026-filesql-test-instance/run/sql.sock
+```
+
+该脚本会短暂限制独立实例的 secure_file_priv，结束时恢复。修改这个全局变量要求本机 Unix socket，不能用 TCP 绕过。实例必须与脚本共享本机文件系统。原有测试实例包含旧系统变量元数据，新程序在该实例启动时返回 OB_ERR_SYS_VARIABLE_UNKNOWN；此次联调使用新建的独立实例 `/home/tom/oceanbase2026-filesql-test-instance`、端口 2882，不改动报名 Docker 实例。
+
+实际通过：
+
+- CSV 类型、NULL、多行引号、重复表头、别名、WHERE、ORDER BY、LIMIT、COUNT/SUM、GROUP BY、HAVING。
+- 日期和时间按实际值核对；当前 DATETIME 默认显示 6 位小数，未将字符串格式差别误判为日期值错误。
+- JSONL 字段并集、缺失字段补 NULL；CSV / JSONL INNER JOIN、LEFT JOIN、双 CSV JOIN 及原生执行计划。
+- 无表头、分隔符、NULL 文本；坏 CSV / JSONL、非法采样及选项、路径越界和符号链接拒绝；错误中包含坏行号。
+- 同一 SQL 对应文件由整数列改成字符串列后重新推断，未复用旧投影。
+
+扫描回归目前共 41 项，通过 CMake / CTest、GCC 严格警告、AddressSanitizer 和 UndefinedBehaviorSanitizer。尚未提测，不据此宣称平台得分。
 
 ## 安全文件流与 JSONL
 

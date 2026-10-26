@@ -71,6 +71,7 @@ void SecureFile::close()
   buffer_.reset();
   stream_.clear();
   absolute_path_.clear();
+  content_hash_ = 14695981039346656037ULL;
 }
 
 Status SecureFile::fail(Status status, const char *message)
@@ -152,7 +153,18 @@ Status SecureFile::rewind()
   if (::lseek(descriptor_, 0, SEEK_SET) < 0) { return fail(Status::IO_ERROR, "Cannot rewind input file"); }
   buffer_.reset();
   stream_.clear();
+  content_hash_ = 14695981039346656037ULL;
   return Status::OK;
+}
+
+std::string SecureFile::fingerprint() const
+{
+  // Used after full inference; includes every input byte without storing them.
+  // inotify and descriptor validation remain the live change-detection guard.
+  return std::to_string(identity_.st_dev) + ":" + std::to_string(identity_.st_ino)
+      + ":" + std::to_string(identity_.st_size) + ":" + std::to_string(identity_.st_mtim.tv_sec)
+      + ":" + std::to_string(identity_.st_mtim.tv_nsec) + ":" + std::to_string(identity_.st_ctim.tv_sec)
+      + ":" + std::to_string(identity_.st_ctim.tv_nsec) + ":" + std::to_string(content_hash_);
 }
 
 SecureFile::Buffer::int_type SecureFile::Buffer::underflow()
@@ -170,6 +182,10 @@ SecureFile::Buffer::int_type SecureFile::Buffer::underflow()
   // Detect writes racing with read before making any newly read bytes visible.
   if (owner_.validate() != Status::OK) { throw std::ios_base::failure(owner_.diagnostic_.message); }
   if (count == 0) { return traits_type::eof(); }
+  for (ssize_t i = 0; i < count; ++i) {
+    owner_.content_hash_ ^= static_cast<unsigned char>(bytes_[i]);
+    owner_.content_hash_ *= 1099511628211ULL;
+  }
   setg(bytes_.data(), bytes_.data(), bytes_.data() + count);
   return traits_type::to_int_type(*gptr());
 }

@@ -65,3 +65,5 @@ python3 unittest/sql/ai_function_integration.py --mysql-client /path/to/mysql --
 同日，通过 mysql 客户端执行独立 `ai_prompt_regression.test` 中的 SQL，并精确核对六行输出：`ARRAY`、`OBJECT`、`inner {0}`、`70000`、`70000`、`E4BDA0`，通过。没有运行 mysqltest 调度器。
 
 尚未重新提测，未声称平台得分或全部 seekdb 赛题完成。
+
+FileSQL 原生接入后重新完整构建 seekdb，并在新建的独立实例 `/home/tom/oceanbase2026-filesql-test-instance` 上再次执行 `ai_function_integration.py --port 2882`，上述四组联调全部通过。

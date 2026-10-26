@@ -27,7 +27,7 @@ public:
   bool Key(const char *text, rapidjson::SizeType size, bool)
   {
     std::string key(text, size);
-    if (key.empty() || key.find('\0') != std::string::npos || has_key_ || row_.size() >= max_columns_
+    if (key.empty() || key.size() > 256 || key.find('\0') != std::string::npos || has_key_ || row_.size() >= max_columns_
         || !keys_.insert(folded(key)).second) { return false; }
     name_ = std::move(key);
     has_key_ = true;

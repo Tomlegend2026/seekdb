@@ -356,6 +356,7 @@ END_P SET_VAR DELIMITER
         TIME_ZONE_INFO TOP_K_FRE_HIST TRIM_SPACE TABLETS TIME_UNIT TIME_ZONE
 
         UNCOMMITTED UNCONDITIONAL UNDEFINED UNNEST UNICODE UNLOCKED UNTIL UPGRADE
+        READ_CSV READ_JSON READ_NDJSON READ_PARQUET GLOB
         UNUSUAL UNKNOWN USE_FRM USER UNBOUNDED UNLIMITED USER_SPECIFIED
 
         VALID VALUE VARIANCE VARIABLES VERBOSE VERIFY VIEW VISIBLE VALIDATE VAR_POP
@@ -497,7 +498,7 @@ END_P SET_VAR DELIMITER
 %type <node> dynamic_sampling_hint
 %type <node> skip_index_type opt_skip_index_type_list
 %type <node> vec_index_params vec_index_param vec_index_param_value opt_with_vector_index_parameters
-%type <node> json_table_expr unnest_expr mock_jt_on_error_on_empty jt_column_list json_table_column_def
+%type <node> json_table_expr unnest_expr file_table_expr file_reader_name mock_jt_on_error_on_empty jt_column_list json_table_column_def
 %type <node> json_table_ordinality_column_def json_table_exists_column_def json_table_value_column_def json_table_nested_column_def
 %type <node> opt_value_on_empty_or_error_or_mismatch opt_on_mismatch
 %type <node> table_values_clause table_values_clause_with_order_by_and_limit values_row_list row_value
@@ -10844,6 +10845,10 @@ tbl_name
 {
   $$ = $1;
 }
+| file_table_expr
+{
+  $$ = $1;
+}
 | hybrid_search_expr
 {
   $$ = $1;
@@ -17428,6 +17433,29 @@ JSON '(' column_name ')' STORE AS '(' lob_storage_parameters ')'
 }
 ;
 
+file_table_expr:
+file_reader_name '(' expr_list ')'
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, $1, $3, NULL);
+}
+| file_reader_name '(' expr_list ')' relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, $1, $3, $5);
+}
+| file_reader_name '(' expr_list ')' AS relation_name
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_FILE_TABLE_EXPRESSION, 3, $1, $3, $6);
+}
+;
+
+file_reader_name:
+READ_CSV { make_name_node($$, result->malloc_pool_, "read_csv"); }
+| READ_JSON { make_name_node($$, result->malloc_pool_, "read_json"); }
+| READ_NDJSON { make_name_node($$, result->malloc_pool_, "read_ndjson"); }
+| READ_PARQUET { make_name_node($$, result->malloc_pool_, "read_parquet"); }
+| GLOB { make_name_node($$, result->malloc_pool_, "glob"); }
+;
+
 unnest_expr:
 UNNEST '(' simple_expr_list ')' 
 {
@@ -18181,6 +18209,11 @@ ACCOUNT
 |       INCONSISTENT 
 |       INDIVIDUAL
 |       HYBRID_SEARCH
+|       READ_CSV
+|       READ_JSON
+|       READ_NDJSON
+|       READ_PARQUET
+|       GLOB
 ;
 
 unreserved_keyword_special:

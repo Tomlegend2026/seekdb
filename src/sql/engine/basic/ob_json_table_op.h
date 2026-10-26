@@ -28,6 +28,7 @@
 #include "sql/engine/expr/ob_expr.h"
 #include "sql/engine/expr/ob_json_param_type.h"
 #include "sql/engine/expr/ob_expr_json_utils.h"
+#include "sql/engine/basic/file_scan_cursor.h"
 
 namespace oceanbase
 {
@@ -220,6 +221,8 @@ public:
 
 private:
   int init();
+  int open_file_scan();
+  int next_file_row();
   int reset_variable();  // reset var in rescan 
   int init_data_obj(); // allocate data_ array
   int generate_column_trees(JtColTreeNode*& root);
@@ -246,6 +249,8 @@ private:
   ObJsonNull j_null_;
   ObJsonArray j_arr_;
   ObJsonObject j_obj_;
+  file_scan::FileCursor *file_cursor_ = nullptr;
+  std::vector<file_scan::Field> file_row_;
 };
 
 class MulModeTableFunc {
