@@ -1,0 +1,27 @@
+services:
+  seekdb:
+    image: oceanbase/seekdb@sha256:4db4961869d554313520d6081fca29265ba6da6db7313311bd8acbed771a956b
+    container_name: oceanbase2026-seekdb
+    hostname: 81a932b01246
+    ports:
+      - "127.0.0.1:2881:2881"
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: "localhost,127.0.0.1,openwebapi.oceanbase.com"
+      no_proxy: "localhost,127.0.0.1,openwebapi.oceanbase.com"
+      CPU_COUNT: "2"
+      MEMORY_LIMIT: 2G
+      LOG_DISK_SIZE: 2G
+      DATAFILE_SIZE: 2G
+      DATAFILE_NEXT: 1G
+      DATAFILE_MAXSIZE: 4G
+    volumes:
+      - seekdb-data:/var/lib/seekdb
+
+volumes:
+  seekdb-data:
