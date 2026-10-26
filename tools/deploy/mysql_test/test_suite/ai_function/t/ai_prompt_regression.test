@@ -1,0 +1,11 @@
+connection default;
+
+SELECT JSON_TYPE(JSON_EXTRACT(AI_PROMPT('{0}', JSON_ARRAY(1, TRUE)), '$.args[0]')) AS array_type;
+SELECT JSON_TYPE(JSON_EXTRACT(AI_PROMPT('{0}', JSON_OBJECT('k', 1)), '$.args[0]')) AS object_type;
+SELECT JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT('outer {0}', AI_PROMPT('inner {0}', 'value')), '$.args[0].template')) AS nested_template;
+CREATE TABLE ai_prompt_lob_regression (template LONGTEXT, argument LONGTEXT);
+INSERT INTO ai_prompt_lob_regression VALUES (REPEAT('x', 70000), REPEAT('x', 70000));
+SELECT CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT(template), '$.template'))) AS template_length FROM ai_prompt_lob_regression;
+SELECT CHAR_LENGTH(JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT('{0}', argument), '$.args[0]'))) AS argument_length FROM ai_prompt_lob_regression;
+DROP TABLE ai_prompt_lob_regression;
+SELECT HEX(JSON_UNQUOTE(JSON_EXTRACT(AI_PROMPT('{0}', CHAR(228, 189, 160 USING utf8mb4)), '$.args[0]'))) AS utf8_hex;
