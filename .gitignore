@@ -1,0 +1,14 @@
+/build_*/
+/deps/3rd/
+/rust/target/
+/run/
+/store/
+/log/
+*.log
+*.rpm
+*.core
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc

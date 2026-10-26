@@ -23,6 +23,14 @@ docker logs --tail 30 oceanbase2026-seekdb
 docker exec oceanbase2026-seekdb mysql --host=127.0.0.1 --port=2881 --user=root --execute="SELECT VERSION() AS version, 1 + 1 AS sql_check;"
 ```
 
+重复检查实例、SQL、UUID 格式和遥测地址连通性：
+
+```powershell
+./verify.ps1
+```
+
+检查脚本不会提测，也不会伪造或手动发送遥测。地址可访问不代表平台已经收到本实例的遥测。
+
 2026-10-26 SQL 验证结果：
 
 ```text
