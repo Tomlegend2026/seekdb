@@ -1666,6 +1666,7 @@ SQL_STANDALONE_SOURCES = [
     struct(path = "src/sql/engine/basic/file_scan_file.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_json.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_cursor.cpp", language = "c++", kind = "source"),
+    struct(path = "src/sql/engine/basic/file_scan_parquet.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_native.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/aggregate/ob_aggregate_processor.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/expr/ob_expr_add.cpp", language = "c++", kind = "source"),

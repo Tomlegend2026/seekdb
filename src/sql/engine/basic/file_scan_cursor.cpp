@@ -8,6 +8,7 @@ Status FileCursor::prepare(const FilePolicy &policy, const QueryOptions &options
 {
   csv_.reset();
   json_.reset();
+  parquet_.reset();
   file_.close();
   prepared_ = false;
   fingerprint_.clear();
@@ -29,6 +30,15 @@ Status FileCursor::prepare(const FilePolicy &policy, const QueryOptions &options
   }
   auto status = file_.open(policy, options.path);
   if (status != Status::OK) { diagnostic_ = file_.diagnostic(); return status; }
+  if (options.parquet) {
+    parquet_ = std::make_unique<ParquetReader>(file_, ParquetOptions{});
+    status = parquet_->prepare(schema_, diagnostic_);
+    if (status != Status::OK) { return status; }
+    if ((status = file_.validate()) != Status::OK) { diagnostic_ = file_.diagnostic(); return status; }
+    fingerprint_ = file_.fingerprint();
+    prepared_ = true;
+    return rewind();
+  }
   status = options.json ? infer_json_schema(file_.stream(), {}, schema_, diagnostic_)
                         : infer_csv_schema(file_.stream(), options.csv, schema_, diagnostic_);
   if (status != Status::OK) { return status; }
@@ -51,6 +61,11 @@ Status FileCursor::rewind()
       return Status::IO_ERROR;
     }
     file_position_ = 0;
+    return Status::OK;
+  }
+  if (options_.parquet) {
+    const auto status = parquet_->rewind(diagnostic_);
+    if (status != Status::OK) { return status; }
     return Status::OK;
   }
   auto status = file_.rewind();
@@ -82,7 +97,10 @@ Status FileCursor::next(std::vector<Field> &row)
   }
   auto status = file_.validate();
   if (status != Status::OK) { row.clear(); diagnostic_ = file_.diagnostic(); return status; }
-  if (json_) {
+  if (parquet_) {
+    status = parquet_->next(row);
+    diagnostic_ = parquet_->diagnostic();
+  } else if (json_) {
     std::vector<JsonField> object;
     status = json_->next(object);
     if (status == Status::OK) { status = project_json_row(object, schema_, row); }

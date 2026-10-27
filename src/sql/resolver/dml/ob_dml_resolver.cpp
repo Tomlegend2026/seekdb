@@ -3697,7 +3697,8 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
   const auto function = text(node.children_[0]);
   options.json = function == "read_json" || function == "read_ndjson";
   options.glob = function == "glob";
-  if (function != "read_csv" && !options.json && !options.glob) {
+  options.parquet = function == "read_parquet";
+  if (function != "read_csv" && !options.json && !options.glob && !options.parquet) {
     LOG_USER_ERROR(OB_NOT_SUPPORTED, "This file reader");
     return OB_NOT_SUPPORTED;
   }
@@ -3739,6 +3740,11 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
     if (OB_FAIL(constant(arg->children_[1], value))) { return ret; }
     if (name == "sample_size") {
       if (!value.is_integer_type() || value.get_int() != -1) { return OB_NOT_SUPPORTED; }
+    } else if (options.parquet) {
+      // A Parquet file carries its own schema and encoding; the CSV and JSONL
+      // reader options do not apply to it.
+      LOG_USER_ERROR(OB_NOT_SUPPORTED, "This file reader option");
+      return OB_NOT_SUPPORTED;
     } else if (name == "format" && options.json) {
       if (!value.is_string_type() || value.get_string() != ObString("newline_delimited")) { return OB_NOT_SUPPORTED; }
     } else if (name == "header" && !options.json) {

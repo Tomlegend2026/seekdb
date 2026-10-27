@@ -2,6 +2,7 @@
 #pragma once
 #include "file_scan_file.h"
 #include "file_scan_json.h"
+#include "file_scan_parquet.h"
 #include <memory>
 
 namespace oceanbase::sql::file_scan
@@ -11,6 +12,7 @@ struct QueryOptions
   std::string path;
   bool json = false;
   bool glob = false;
+  bool parquet = false;
   CsvOptions csv;
 };
 
@@ -33,6 +35,7 @@ private:
   std::string fingerprint_;
   std::unique_ptr<CsvReader> csv_;
   std::unique_ptr<JsonReader> json_;
+  std::unique_ptr<ParquetReader> parquet_;
   Diagnostic diagnostic_;
   bool prepared_ = false;
 };

@@ -34,6 +34,20 @@ struct Field
   bool is_null = false;
 };
 
+// Random-access view of one already secured file. The owner enforces the file
+// identity and the security policy; the reader validates that every requested
+// range lies inside [0, size()) before calling read_at.
+class RandomAccessInput
+{
+public:
+  virtual ~RandomAccessInput() {}
+  virtual uint64_t size() const = 0;
+  // Reads exactly buffer_size bytes at offset. A short read is IO_ERROR and a
+  // range outside the file is INVALID.
+  virtual Status read_at(uint64_t offset, char *buffer, uint64_t buffer_size,
+                         Diagnostic &diagnostic) = 0;
+};
+
 // Keeps only one record in memory. The owner supplies the secured file stream
 // and must revalidate its file identity before each executor batch.
 class CsvReader

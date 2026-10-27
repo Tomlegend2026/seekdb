@@ -18,7 +18,7 @@ struct FilePolicy
 // Read-only, descriptor-backed stream. Every path component is opened without
 // following symlinks. Revalidation compares the open descriptor AND current path
 // against the original identity before rewinds and each buffered read.
-class SecureFile
+class SecureFile : public RandomAccessInput
 {
 public:
   SecureFile();
@@ -32,6 +32,12 @@ public:
   void close();
   std::istream &stream() { return stream_; }
   const Diagnostic &diagnostic() const { return diagnostic_; }
+
+  // RandomAccessInput: the descriptor is read without disturbing the
+  // sequential stream position.
+  uint64_t size() const override { return identity_.st_size < 0 ? 0 : static_cast<uint64_t>(identity_.st_size); }
+  Status read_at(uint64_t offset, char *buffer, uint64_t buffer_size,
+                 Diagnostic &diagnostic) override;
 
 private:
   class Buffer : public std::streambuf

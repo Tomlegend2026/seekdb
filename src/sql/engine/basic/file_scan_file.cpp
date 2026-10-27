@@ -167,6 +167,36 @@ std::string SecureFile::fingerprint() const
       + ":" + std::to_string(identity_.st_ctim.tv_nsec) + ":" + std::to_string(content_hash_);
 }
 
+Status SecureFile::read_at(uint64_t offset, char *buffer, uint64_t buffer_size, Diagnostic &diagnostic)
+{
+  if (descriptor_ < 0 || status_ != Status::OK) {
+    diagnostic.message = "File is not open for reading";
+    return Status::IO_ERROR;
+  }
+  const uint64_t total = size();
+  if (offset > total || buffer_size > total - offset) {
+    diagnostic.message = "Read is outside the file boundary";
+    return Status::INVALID;
+  }
+  uint64_t done = 0;
+  while (done < buffer_size) {
+    const ssize_t count = ::pread(descriptor_, buffer + done,
+                                   static_cast<size_t>(buffer_size - done),
+                                   static_cast<off_t>(offset + done));
+    if (count < 0) {
+      if (errno == EINTR) { continue; }
+      diagnostic.message = "Cannot read input file";
+      return Status::IO_ERROR;
+    }
+    if (count == 0) {
+      diagnostic.message = "Unexpected end of input file";
+      return Status::IO_ERROR;
+    }
+    done += static_cast<uint64_t>(count);
+  }
+  return Status::OK;
+}
+
 SecureFile::Buffer::int_type SecureFile::Buffer::underflow()
 {
   if (gptr() < egptr()) { return traits_type::to_int_type(*gptr()); }
