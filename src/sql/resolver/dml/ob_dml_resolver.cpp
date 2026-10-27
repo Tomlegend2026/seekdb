@@ -3791,7 +3791,13 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
       info.id_ = i + 1;
       info.output_column_idx_ = info.id_; // resolver column ID; codegen assigns the projection slot
       info.data_type_.set_obj_type(native_type(schema.types[i]));
-      info.data_type_.set_accuracy(ObAccuracy::DDL_DEFAULT_ACCURACY2[0][native_type(schema.types[i])]);
+      if (native_type(schema.types[i]) == ObDateTimeType) {
+        // A DATETIME column without an explicit precision keeps whole seconds,
+        // the same way MySQL renders DATETIME(0).
+        info.data_type_.set_accuracy(ObAccuracy(0, 0));
+      } else {
+        info.data_type_.set_accuracy(ObAccuracy::DDL_DEFAULT_ACCURACY2[0][native_type(schema.types[i])]);
+      }
       if (native_type(schema.types[i]) == ObVarcharType) {
         info.data_type_.set_collation_type(CS_TYPE_UTF8MB4_BIN);
         info.data_type_.set_collation_level(CS_LEVEL_IMPLICIT);

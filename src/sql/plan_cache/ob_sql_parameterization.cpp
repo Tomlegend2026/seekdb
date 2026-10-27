@@ -1905,6 +1905,13 @@ int ObSqlParameterization::mark_tree(ParseNode *tree ,SqlInfo &sql_info)
   int ret = OB_SUCCESS;
   if (NULL == tree) {
     //do nothing
+  } else if (T_COPY_OUTFILE == tree->type_) {
+    // The COPY options decide how the export is written, they are resolved
+    // into the plan instead of being evaluated at runtime. They must not be
+    // parameterized, otherwise statements that only differ in the option
+    // values would share one cached plan.
+    tree->is_tree_not_param_ = true;
+    sql_info.ps_need_parameterized_ = false;
   } else if (T_FUN_SYS == tree->type_) {
     ParseNode **node = tree->children_;//node[0] : func name, node[1]: arg list
     if (2 != tree->num_child_) {

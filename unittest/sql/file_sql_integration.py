@@ -192,6 +192,55 @@ def main():
             assert sql("SELECT COUNT(*) FROM glob(" + literal(str(data / "*.absent")) + ");") == "0"
             sql("SELECT * FROM glob(" + literal(str(outside)) + ");", error=True)
             print("PASS native glob: sorted regular files, wildcard, empty matches, path boundary", flush=True)
+
+            # COPY exports a query or a table to a local CSV file.
+            def target(path):
+                # the export target must be a plain string literal
+                return "'" + str(path).replace("\\", "\\\\").replace("'", "''") + "'"
+
+            export = data / "export.csv"
+            sql(f"COPY (SELECT id,name,score,note FROM {csv} ORDER BY id) "
+                f"TO {target(export)} (format csv, header);")
+            assert export.exists()
+            lines = export.read_text(encoding="utf-8").splitlines()
+            assert lines[0] == "id,name,score,note", lines[:1]
+            assert lines[1] == '1,"Alice",98.5,"hello,', lines[:2]
+            assert sql(f"SELECT id,name,score,REPLACE(note,CHAR(10),'<NL>') "
+                       f"FROM read_csv({literal(str(export))}) ORDER BY id;") == (
+                "1\tAlice\t98.5\thello,<NL>world\n"
+                "2\tBob\t87\tplain\n"
+                "3\tChen\t90.25\tsay \"hi\"\n"
+                "4\tDora\t80\tlast")
+            # an existing file is never overwritten
+            sql(f"COPY (SELECT id FROM {csv}) TO {target(export)} (format csv, header);", error=True)
+            assert export.read_text(encoding="utf-8").splitlines()[0] == "id,name,score,note"
+            # unless the user asks for it
+            sql(f"COPY (SELECT id FROM {csv}) TO {target(export)} (format csv, header, overwrite true);")
+            assert export.read_text(encoding="utf-8").splitlines()[0] == "id"
+            # the null text is written as configured
+            nulls = data / "nulls.csv"
+            sql(f"COPY (SELECT id,day FROM {csv} ORDER BY id) TO {target(nulls)} "
+                f"(format csv, header, nullstr 'NULL');")
+            assert nulls.read_text(encoding="utf-8").splitlines() == [
+                "id,day", '1,"2026-08-01"', "2,NULL", '3,"2026-08-03"', "4,NULL"]
+            # a table can be exported as well
+            sql("CREATE TABLE file_copy_base(id BIGINT, name VARCHAR(32));")
+            try:
+                sql("INSERT INTO file_copy_base VALUES (1,'a'),(2,NULL);")
+                table_export = data / "table.csv"
+                sql(f"COPY file_copy_base TO {target(table_export)} "
+                    f"(format csv, header, nullstr 'NULL');")
+                assert table_export.read_text(encoding="utf-8").splitlines() == [
+                    "id,name", '1,"a"', "2,NULL"]
+            finally:
+                sql("DROP TABLE file_copy_base;")
+            # the export is part of the file SQL feature
+            sql(f"COPY (SELECT id FROM {csv}) TO {target(data / 'off.csv')} (format csv);",
+                enabled=False, error=True)
+            for options in ["format json", "unknown_option 1", "delimiter ';;'"]:
+                sql(f"COPY (SELECT id FROM {csv}) TO {target(data / 'bad.csv')} ({options});", error=True)
+            print("PASS native COPY: query and table export, header, null text, "
+                  "no overwrite, option checks", flush=True)
         finally:
             if changed_policy:
                 sql("SET GLOBAL secure_file_priv=" + restore + ";", enabled=False)

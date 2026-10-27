@@ -1,6 +1,6 @@
 # FileSQL 扫描基础
 
-当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现、seekdb 原生 SQL 接入，以及 `DESCRIBE` 原生结果元数据。**整题尚未完成**：Parquet 和 COPY 仍未实现。
+当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现、seekdb 原生 SQL 接入，`DESCRIBE` 原生结果元数据，以及 `COPY` 导出。**整题尚未完成**：Parquet 仍未实现。
 
 2026-10-27：glob 已随提交 `1eb0b60` 上传。全部扫描回归 61 项通过；其中 19 项 glob 测试另经 GCC 严格警告、AddressSanitizer / UndefinedBehaviorSanitizer 执行通过。原生 SQL 联调通过文件列、排序、过滤、相对与绝对模式、空匹配及路径边界检查。glob 只发现文件并返回单列 `file`，不自动合并文件内容。目录项在追加前受结果数量 / 遍历数量限制，拒绝符号链接，错误时不发布部分结果。
 
@@ -41,7 +41,7 @@ python3 unittest/sql/file_sql_integration.py \
 实际通过：
 
 - CSV 类型、NULL、多行引号、重复表头、别名、WHERE、ORDER BY、LIMIT、COUNT/SUM、GROUP BY、HAVING。
-- 日期和时间按实际值核对；当前 DATETIME 默认显示 6 位小数，未将字符串格式差别误判为日期值错误。
+- 日期和时间按实际值核对；DATETIME 列按 MySQL 的 `DATETIME`（精度 0）语义渲染，不带多余小数秒。
 - JSONL 字段并集、缺失字段补 NULL；CSV / JSONL INNER JOIN、LEFT JOIN、双 CSV JOIN 及原生执行计划。
 - 无表头、分隔符、NULL 文本；坏 CSV / JSONL、非法采样及选项、路径越界和符号链接拒绝；错误中包含坏行号。
 - 同一 SQL 对应文件由整数列改成字符串列后重新推断，未复用旧投影。
@@ -68,3 +68,25 @@ python3 unittest/sql/file_sql_integration.py \
 - 只含文件表的查询走元数据路径；一旦查询同时读取受保护基表，则保持原有 `EXPLAIN` 输出，由执行器对原查询做权限检查，避免绕过原查询的权限判定。文件访问本身仍受 `enable_file_sql`、`FILE` 权限和 `secure_file_priv` 约束。
 
 验证：扫描回归共 63 项通过；完整 seekdb 构建通过；真实 SQL 联调通过 CSV 类型、JSONL 缺失字段、列别名、外连接可空性、空结果查询、派生表、CTE，以及权限回归（无授权时报错、授权后放行、撤销 `FILE` 权限后报错）。权限回归用临时账号 `'file_desc_xxx'@'%'`，并以不指定默认库的方式连接，确保该账号不因默认库而获得额外权限。
+
+## COPY 导出
+
+2026-10-27：`COPY (查询) TO '文件' (选项)` 与 `COPY 表 TO '文件' (选项)` 已接入原生 SQL，复用 `INTO OUTFILE` 的流式写出链路，因此 FILE 权限、`secure_file_priv` 边界与文件流安全校验全部沿用既有实现，不引入任何外部引擎。
+
+- 语法：`COPY '(' select_stmt ')' TO STRING_VALUE opt_copy_option_list`，以及 `COPY tbl_name TO STRING_VALUE opt_copy_option_list`；表形式等价于 `COPY (SELECT * FROM 表) TO ...`。`COPY` 沿用仓库既有的非保留关键字，不改变关键字表。
+- 选项：`format csv`（仅支持 csv）、`header`（裸写、`true`、`false`）、`nullstr` / `null`、`delimiter` / `sep`、`quote`、`escape`、`overwrite` / `or_replace`（默认禁止覆盖）。取值支持布尔字面量、字符串字面量、标识符和整数字面量。
+- 默认禁止覆盖已有文件，报 `OB_FILE_ALREADY_EXIST`；`overwrite true` 允许替换。底层文件写入器使用 `O_EXCL` 打开（与 MySQL `INTO OUTFILE` 一致），因此允许覆盖时会先移除旧文件再创建。
+- `header` 写出的列名取自优化器阶段的投影列（别名优先），`nullstr` 写出的 NULL 文本不加引号，字符串列仍按 CSV 规则加引号与转义。
+- 导出失败时删除半成品文件，不留残缺文件；空结果也会落盘表头行。
+- COPY 语句不参与 PS 参数化：选项值会被解析进计划，若被参数化则不同选项值的语句会共用同一份缓存计划（`header false` 与 `header true` 会串味）。因此在 `ObSqlParameterization::mark_tree` 中把 `T_COPY_OUTFILE` 标记为不可参数化，使其保留在计划缓存键中。
+
+验证：
+
+```sh
+python3 unittest/sql/file_sql_integration.py \
+  --socket /home/tom/oceanbase2026-filesql-test-instance/run/sql.sock
+python3 unittest/sql/file_sql_official_case.py \
+  --socket /home/tom/oceanbase2026-filesql-test-instance/run/sql.sock
+```
+
+集成脚本覆盖查询导出、表导出、表头、NULL 文本、禁止覆盖、显式覆盖、非法选项与关闭功能开关时的报错；`file_sql_official_case.py` 复现官方 `tools/deploy/mysql_test/test_suite/file_sql` 用例的语句与期望输出，逐段比对（Parquet 段在实现前标记为 PENDING）。两者均通过，扫描回归 63 项通过，完整 seekdb 构建通过。

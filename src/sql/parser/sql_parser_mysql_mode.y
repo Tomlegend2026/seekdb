@@ -470,6 +470,7 @@ END_P SET_VAR DELIMITER
 %type <node> recyclebin_restore_stmt purge_stmt opt_recyclebin_restore_rename_table opt_recyclebin_restore_rename_database
 %type <node> cache_type
 %type <node> into_opt into_clause field_opt field_term field_term_list line_opt line_term line_term_list into_var_list into_var file_opt file_option_list file_option file_size_const binary_format
+%type <node> copy_stmt opt_copy_option_list copy_option_list copy_option copy_option_name opt_copy_option_value
 %type <node> string_list text_string string_val_list
 %type <node> list_expr list_partition_element list_partition_expr list_partition_list list_partition_option opt_list_partition_list opt_list_subpartition_list list_subpartition_list list_subpartition_element drop_partition_name_list
 %type <node> distribute_method distribute_method_list opt_distribute_method_list
@@ -557,6 +558,7 @@ opt_end_p:
 /* only preparable statement will set question mark size */
 stmt:
     select_stmt             { $$ = $1; question_mark_issue($$, result); }
+  | copy_stmt               { $$ = $1; question_mark_issue($$, result); }
   | insert_stmt             { $$ = $1; question_mark_issue($$, result); }
   | create_table_stmt       {
     $$ = $1;
@@ -8935,6 +8937,115 @@ into_opt:
   $$ = NULL;
 }
 | into_clause
+{
+  $$ = $1;
+}
+;
+
+/*****************************************************************************
+ * COPY <query|table> TO <file> (<options>)
+ * The export reuses the select into outfile pipeline: the FILE privilege and
+ * the secure_file_priv boundary are checked by the existing machinery.
+ *****************************************************************************/
+copy_stmt:
+COPY '(' select_stmt ')' TO STRING_VALUE opt_copy_option_list
+{
+  ParseNode *into_node = NULL;
+  (void)($5);
+  malloc_non_terminal_node(into_node, result->malloc_pool_, T_COPY_OUTFILE, 2, $6, $7);
+  $$ = $3;
+  if (OB_ISNULL($$) || NULL != $$->children_[PARSE_SELECT_INTO]) {
+    yyerror(&@1, result, "COPY target must not contain INTO\n");
+    YYERROR;
+  } else {
+    $$->children_[PARSE_SELECT_INTO] = into_node;
+  }
+}
+| COPY tbl_name TO STRING_VALUE opt_copy_option_list
+{
+  // COPY tbl TO 'file' is COPY (SELECT * FROM tbl) TO 'file'
+  ParseNode *select_node = NULL;
+  ParseNode *star_node = NULL;
+  ParseNode *upper_node = NULL;
+  ParseNode *project_list = NULL;
+  ParseNode *from_list = NULL;
+  ParseNode *into_node = NULL;
+  (void)($1);
+  (void)($3);
+  malloc_select_node(select_node, result->malloc_pool_);
+  malloc_terminal_node(star_node, result->malloc_pool_, T_STAR);
+  malloc_non_terminal_node(upper_node, result->malloc_pool_, T_PROJECT_STRING, 1, star_node);
+  dup_string_to_node(upper_node, result->malloc_pool_, "*");
+  merge_nodes(project_list, result, T_PROJECT_LIST, upper_node);
+  merge_nodes(from_list, result, T_FROM_LIST, $2);
+  select_node->children_[PARSE_SELECT_SELECT] = project_list;
+  select_node->children_[PARSE_SELECT_FROM] = from_list;
+  malloc_non_terminal_node(into_node, result->malloc_pool_, T_COPY_OUTFILE, 2, $4, $5);
+  select_node->children_[PARSE_SELECT_INTO] = into_node;
+  $$ = select_node;
+}
+;
+
+opt_copy_option_list:
+/*EMPTY*/
+{
+  $$ = NULL;
+}
+| '(' copy_option_list ')'
+{
+  $$ = $2;
+}
+;
+
+copy_option_list:
+copy_option
+{
+  $$ = $1;
+}
+| copy_option_list ',' copy_option
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $3);
+}
+;
+
+copy_option:
+copy_option_name opt_copy_option_value
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_COPY_OPTION, 2, $1, $2);
+}
+;
+
+/* Option names are plain identifiers or non reserved keywords such as
+ * FORMAT and ESCAPE, so that the DuckDB spelling can be used as is. */
+copy_option_name:
+NAME_OB
+{
+  $$ = $1;
+}
+| unreserved_keyword
+{
+  get_non_reserved_node($$, result->malloc_pool_, @1.first_column, @1.last_column);
+}
+;
+
+opt_copy_option_value:
+/*EMPTY*/
+{
+  $$ = NULL;
+}
+| NAME_OB
+{
+  $$ = $1;
+}
+| STRING_VALUE
+{
+  $$ = $1;
+}
+| BOOL_VALUE
+{
+  $$ = $1;
+}
+| INTNUM
 {
   $$ = $1;
 }
