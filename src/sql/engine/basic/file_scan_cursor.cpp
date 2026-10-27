@@ -20,6 +20,7 @@ Status FileCursor::prepare(const FilePolicy &policy, const QueryOptions &options
     if (status != Status::OK) { return status; }
     schema_.names = {"file"};
     schema_.types = {Type::VARCHAR};
+    schema_.nullable = {false};
     schema_.row_count = files_.size();
     fingerprint_ = "glob:";
     for (const auto &file : files_) { fingerprint_ += std::to_string(file.size()) + ":" + file; }

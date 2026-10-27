@@ -231,6 +231,16 @@ TEST(FileScanSchema, inference_reads_late_rows_and_widens_all_columns)
   EXPECT_EQ(2u, schema.row_count);
   EXPECT_EQ((std::vector<Type>{Type::DOUBLE, Type::DATETIME, Type::VARCHAR, Type::BOOLEAN}), schema.types);
   EXPECT_EQ((std::vector<std::string>{"n", "day", "empty", "flag"}), schema.names);
+  EXPECT_EQ((std::vector<bool>{false, false, true, false}), schema.nullable);
+}
+
+TEST(FileScanSchema, nullability_tracks_late_nulls_and_quoted_empty_values)
+{
+  std::istringstream input("id,text,late\n1,\"\",3\n2,\"\",\n");
+  CsvSchema schema;
+  Diagnostic diagnostic;
+  ASSERT_EQ(Status::OK, infer_csv_schema(input, {}, schema, diagnostic));
+  EXPECT_EQ((std::vector<bool>{false, false, true}), schema.nullable);
 }
 
 TEST(FileScanSchema, headerless_inference_includes_first_record)
@@ -268,4 +278,5 @@ TEST(FileScanSchema, empty_input_differs_from_header_only_input)
   ASSERT_EQ(Status::OK, infer_csv_schema(header, {}, schema, diagnostic));
   EXPECT_EQ(0u, schema.row_count);
   EXPECT_EQ((std::vector<Type>{Type::VARCHAR, Type::VARCHAR}), schema.types);
+  EXPECT_EQ((std::vector<bool>{true, true}), schema.nullable);
 }

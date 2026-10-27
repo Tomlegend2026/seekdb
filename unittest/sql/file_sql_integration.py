@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import uuid
 
 
 def literal(text):
@@ -31,9 +32,15 @@ def main():
                    "--user=" + args.user, "--default-character-set=utf8mb4", "--batch", "--raw",
                    "--skip-column-names", "test"]
 
-    def sql(statement, *, enabled=True, error=False):
+    def sql(statement, *, enabled=True, error=False, as_user=None, database="test"):
         prefix = "SET SESSION enable_file_sql=ON;" if enabled else ""
-        result = subprocess.run(command, input=prefix + statement, text=True,
+        client = ["--user=" + as_user if arg.startswith("--user=") and as_user else arg
+                  for arg in command]
+        if database is None:
+            # Connect without a default schema: the temporary account must not
+            # inherit any privilege on the schema it is tested against.
+            client = client[:-1]
+        result = subprocess.run(client, input=prefix + statement, text=True,
                                 capture_output=True, timeout=90)
         if error:
             assert result.returncode != 0, "Invalid file SQL unexpectedly succeeded: " + statement
@@ -91,6 +98,65 @@ def main():
             plan = sql(f"EXPLAIN SELECT c.id FROM {csv} c JOIN {js} j ON c.id=j.id;")
             assert "JSON_TABLE" in plan or "JSON TABLE" in plan, plan
             print("PASS native JSONL union schema, missing NULL, inner/left/cross-format join and plan", flush=True)
+
+            expected = "\n".join(
+                f"{name}\t{kind}\t{nullable}\tNULL\tNULL\tNULL"
+                for name, kind, nullable in [
+                    ("id", "BIGINT", "NO"), ("name", "VARCHAR", "NO"),
+                    ("score", "DOUBLE", "NO"), ("active", "BOOLEAN", "NO"),
+                    ("day", "DATE", "YES"), ("created", "DATETIME", "YES"),
+                    ("note", "VARCHAR", "NO"), ("id__2", "BIGINT", "NO")])
+            assert sql(f"DESCRIBE SELECT * FROM {csv};") == expected
+            assert sql(f"DESC SELECT active AS `a'b`,id FROM {csv} WHERE 1=0;") == (
+                "a'b\tBOOLEAN\tNO\tNULL\tNULL\tNULL\nid\tBIGINT\tNO\tNULL\tNULL\tNULL")
+            assert sql(f"DESCRIBE SELECT id,active FROM {js};") == (
+                "id\tBIGINT\tNO\tNULL\tNULL\tNULL\nactive\tBOOLEAN\tYES\tNULL\tNULL\tNULL")
+            assert sql(f"DESC SELECT j.id FROM {csv} c LEFT JOIN {js} j ON c.id=j.id;") == (
+                "id\tBIGINT\tYES\tNULL\tNULL\tNULL")
+            # Derived tables and CTEs keep the file type name and nullability.
+            assert sql(f"DESCRIBE SELECT * FROM (SELECT id,active FROM {csv}) t;") == (
+                "id\tBIGINT\tNO\tNULL\tNULL\tNULL\nactive\tBOOLEAN\tNO\tNULL\tNULL\tNULL")
+            assert sql(f"DESC SELECT t.id FROM (SELECT id FROM {csv}) t;") == (
+                "id\tBIGINT\tNO\tNULL\tNULL\tNULL")
+            assert sql(f"DESCRIBE WITH cte AS (SELECT id,active FROM {csv}) SELECT * FROM cte;") == (
+                "id\tBIGINT\tNO\tNULL\tNULL\tNULL\nactive\tBOOLEAN\tNO\tNULL\tNULL\tNULL")
+            assert sql(f"DESC SELECT c.id FROM (WITH cte AS (SELECT id FROM {csv}) "
+                       f"SELECT * FROM cte) c;") == ("id\tBIGINT\tNO\tNULL\tNULL\tNULL")
+            assert "column_name" not in sql("DESC SELECT 1;")
+            # A query that also reads a protected table keeps the normal EXPLAIN
+            # output, so the executor still checks the original query privileges.
+            sql("CREATE TABLE file_desc_base(id BIGINT);")
+            try:
+                plan = sql(f"DESC SELECT f.id FROM {csv} f JOIN file_desc_base t ON f.id=t.id;")
+                assert "JSON_TABLE" in plan and "column_name" not in plan, plan
+            finally:
+                sql("DROP TABLE file_desc_base;")
+            identifier = "file_desc_" + uuid.uuid4().hex[:12]
+            account = "'" + identifier + "'@'%'"
+            created_user = False
+            created_table = False
+            try:
+                sql(f"CREATE USER {account};")
+                created_user = True
+                sql(f"GRANT FILE ON *.* TO {account};")
+                assert sql("SELECT 1;", as_user=identifier, database=None) == "1"
+                sql(f"CREATE TABLE {identifier}(id BIGINT);")
+                created_table = True
+                sql(f"DESC SELECT f.id FROM {csv} f JOIN test.{identifier} t ON f.id=t.id;",
+                    as_user=identifier, database=None, error=True)
+                sql(f"GRANT SELECT ON test.{identifier} TO {account};")
+                assert "JSON_TABLE" in sql(
+                    f"DESC SELECT f.id FROM {csv} f JOIN test.{identifier} t ON f.id=t.id;",
+                    as_user=identifier, database=None)
+                sql(f"REVOKE FILE ON *.* FROM {account};")
+                sql(f"DESC SELECT * FROM {csv};", as_user=identifier, database=None, error=True)
+            finally:
+                if created_table:
+                    sql(f"DROP TABLE {identifier};")
+                if created_user:
+                    sql(f"DROP USER {account};")
+            print("PASS DESCRIBE: inferred types, NULL, projection, aliases, outer joins, "
+                  "derived tables, CTEs, empty results and privileges", flush=True)
 
             options = "read_csv(" + literal(str(data / "no_header.csv")) + ",header=false,delim=';',nullstr='NULL')"
             assert sql(f"SELECT column1,column2 FROM {options} ORDER BY column1;") == "1\tone\n2\tNULL"

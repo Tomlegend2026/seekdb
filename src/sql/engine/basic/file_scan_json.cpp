@@ -121,6 +121,7 @@ Status infer_json_schema(std::istream &input, const JsonOptions &options,
   CsvSchema candidate;
   std::unordered_map<std::string, size_t> indices;
   std::vector<JsonField> row;
+  std::vector<uint64_t> nonnull_counts;
   Status status;
   while ((status = reader.next(row)) == Status::OK) {
     ++candidate.row_count;
@@ -136,9 +137,11 @@ Status infer_json_schema(std::istream &input, const JsonOptions &options,
         position = indices.emplace(key, candidate.names.size()).first;
         candidate.names.push_back(field.name);
         candidate.types.push_back(Type::NULL_VALUE);
+        nonnull_counts.push_back(0);
       }
       Type &type = candidate.types[position->second];
       type = widen(type, field.type);
+      if (!field.value.is_null) { ++nonnull_counts[position->second]; }
     }
   }
   if (status != Status::END) { diagnostic = reader.diagnostic(); return status; }
@@ -148,6 +151,9 @@ Status infer_json_schema(std::istream &input, const JsonOptions &options,
     return Status::INVALID;
   }
   for (Type &type : candidate.types) { type = result_type(type); }
+  for (const auto count : nonnull_counts) {
+    candidate.nullable.push_back(count < candidate.row_count);
+  }
   schema = std::move(candidate);
   diagnostic = {};
   return Status::OK;

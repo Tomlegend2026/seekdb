@@ -1,6 +1,6 @@
 # FileSQL 扫描基础
 
-当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现及 seekdb 原生 SQL 接入，并通过真实 SQL 联调。**整题尚未完成**：Parquet、COPY 和 DESCRIBE 返回列元数据仍未实现。
+当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现、seekdb 原生 SQL 接入，以及 `DESCRIBE` 原生结果元数据。**整题尚未完成**：Parquet 和 COPY 仍未实现。
 
 2026-10-27：glob 已随提交 `1eb0b60` 上传。全部扫描回归 61 项通过；其中 19 项 glob 测试另经 GCC 严格警告、AddressSanitizer / UndefinedBehaviorSanitizer 执行通过。原生 SQL 联调通过文件列、排序、过滤、相对与绝对模式、空匹配及路径边界检查。glob 只发现文件并返回单列 `file`，不自动合并文件内容。目录项在追加前受结果数量 / 遍历数量限制，拒绝符号链接，错误时不发布部分结果。
 
@@ -57,3 +57,14 @@ python3 unittest/sql/file_sql_integration.py \
 `file_scan_json.{h,cpp}` 使用仓库已有 RapidJSON 的 SAX 解析器，不引入外部查询引擎。逐行只保留当前平坦对象，完整扫描字段并集，补齐缺失字段为 NULL；保留数值原始文本，避免大整数先转 double 后丢失精度。JSON 字符串保持字符串语义，仅合法日期和时间参与日期类型推断。拒绝嵌套对象/数组、重复或大小写冲突字段、非法 UTF-8、畸形行和字段上限越界。
 
 新增 10 项文件安全和 10 项 JSONL 回归，连同 CSV 共 37 项已执行通过；相同 37 项另外通过 GCC 严格警告、AddressSanitizer 和 UndefinedBehaviorSanitizer。包含同长度改写、路径替换、目录替换、删除、缓冲边界、晚出现字段、缺失值、Unicode、类型冲突和完整推断失败时不发布部分结构。
+
+## DESCRIBE 原生元数据
+
+2026-10-27：`DESCRIBE` / `DESC` 作用于 FileSQL 查询时返回原生结果元数据，列名为 `column_name`、`column_type`、`null`、`key`、`default`、`extra`，与官方测试 `tools/deploy/mysql_test/test_suite/file_sql` 中 `describe select * from read_csv(...)` 的期望一致。
+
+- 类型名取自文件推断结果（BIGINT、DOUBLE、BOOLEAN、DATE、DATETIME、VARCHAR），不回落为通用类型名；可空性来自推断阶段统计的 NULL 计数，外连接空侧列强制为可空。
+- 投影、别名、派生表和 CTE 沿列引用逐层解析，文件类型名与可空性在投影后仍然保留。派生表与 CTE 的列号基址是 `OB_APP_MIN_COLUMN_ID`，文件表则是 1 基，两种基址都会被探测并用列名消歧。递归 CTE 的遍历有深度上限。
+- 解析器根节点的 `value_` 仍专用于参数计数，DESCRIBE 标记改用格式子节点的 `T_BOOL`，普通 `EXPLAIN` 行为不变。
+- 只含文件表的查询走元数据路径；一旦查询同时读取受保护基表，则保持原有 `EXPLAIN` 输出，由执行器对原查询做权限检查，避免绕过原查询的权限判定。文件访问本身仍受 `enable_file_sql`、`FILE` 权限和 `secure_file_priv` 约束。
+
+验证：扫描回归共 63 项通过；完整 seekdb 构建通过；真实 SQL 联调通过 CSV 类型、JSONL 缺失字段、列别名、外连接可空性、空结果查询、派生表、CTE，以及权限回归（无授权时报错、授权后放行、撤销 `FILE` 权限后报错）。权限回归用临时账号 `'file_desc_xxx'@'%'`，并以不指定默认库的方式连接，确保该账号不因默认库而获得额外权限。

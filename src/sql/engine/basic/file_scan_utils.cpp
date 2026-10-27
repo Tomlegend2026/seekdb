@@ -283,6 +283,7 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
     }
   }
   candidate.types.resize(row.size(), Type::NULL_VALUE);
+  candidate.nullable.resize(row.size(), false);
   uint64_t record_start_line = 1;
   if (options.header) {
     record_start_line = reader.diagnostic().line;
@@ -297,6 +298,7 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
     }
     for (size_t i = 0; i < row.size(); ++i) {
       candidate.types[i] = widen(candidate.types[i], infer_type(row[i]));
+      candidate.nullable[i] = candidate.nullable[i] || row[i].is_null;
     }
     ++candidate.row_count;
     record_start_line = reader.diagnostic().line;
@@ -307,6 +309,9 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
     return status;
   }
   for (Type &type : candidate.types) { type = result_type(type); }
+  if (candidate.row_count == 0) {
+    candidate.nullable.assign(candidate.names.size(), true);
+  }
   schema = std::move(candidate);
   diagnostic = {};
   return Status::OK;

@@ -36,6 +36,7 @@ TEST(FileScanJson, UnionAndMissingFieldsAreInferredAcrossTheEntireFile)
   EXPECT_EQ((std::vector<std::string>{"id", "score", "late"}), schema.names);
   EXPECT_EQ((std::vector<Type>{Type::BIGINT, Type::DOUBLE, Type::BOOLEAN}), schema.types);
   EXPECT_EQ(3U, schema.row_count);
+  EXPECT_EQ((std::vector<bool>{true, true, true}), schema.nullable);
   std::istringstream scan("{\"id\":3}");
   JsonReader reader(scan, {});
   std::vector<JsonField> object;
@@ -46,6 +47,16 @@ TEST(FileScanJson, UnionAndMissingFieldsAreInferredAcrossTheEntireFile)
   EXPECT_EQ("3", row[0].text);
   EXPECT_TRUE(row[1].is_null);
   EXPECT_TRUE(row[2].is_null);
+}
+
+TEST(FileScanJson, NullabilityIncludesLateFieldsExplicitNullAndAbsentKeys)
+{
+  std::istringstream input("{\"id\":1,\"nullable\":true,\"missing\":1}\n"
+      "{\"id\":2,\"nullable\":null,\"late\":2}");
+  CsvSchema schema;
+  Diagnostic diagnostic;
+  ASSERT_EQ(Status::OK, infer_json_schema(input, {}, schema, diagnostic));
+  EXPECT_EQ((std::vector<bool>{false, true, true, true}), schema.nullable);
 }
 
 TEST(FileScanJson, WideningAndAllNullFieldsDoNotDependOnRowOrder)

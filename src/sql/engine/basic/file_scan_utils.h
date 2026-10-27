@@ -65,6 +65,7 @@ struct CsvSchema
 {
   std::vector<std::string> names;
   std::vector<Type> types;
+  std::vector<bool> nullable;
   uint64_t row_count = 0;
 };
 
