@@ -5,6 +5,7 @@ The server and this script must share the local filesystem. The script temporari
 restricts secure_file_priv to its own fixture directory and restores it on exit.
 """
 import argparse
+import csv as csvlib
 from datetime import date, datetime
 import json
 from pathlib import Path
@@ -205,6 +206,16 @@ def main():
             lines = export.read_text(encoding="utf-8").splitlines()
             assert lines[0] == "id,name,score,note", lines[:1]
             assert lines[1] == '1,"Alice",98.5,"hello,', lines[:2]
+            special = data / "special-header.csv"
+            names = ["a,b", 'a"b', "换\n行"]
+            columns = ",".join(f"{i + 1} AS `{name}`" for i, name in enumerate(names))
+            sql(f"COPY (SELECT {columns}) TO {target(special)} (format csv, header);")
+            with special.open(encoding="utf-8", newline="") as handle:
+                assert list(csvlib.reader(handle)) == [names, ["1", "2", "3"]]
+            assert sql(f"SELECT * FROM read_csv({literal(str(special))});") == "1\t2\t3"
+            empty = data / "empty-export.csv"
+            sql(f"COPY (SELECT 1 AS id WHERE FALSE) TO {target(empty)} (header);")
+            assert empty.read_text(encoding="utf-8") == "id\n"
             assert sql(f"SELECT id,name,score,REPLACE(note,CHAR(10),'<NL>') "
                        f"FROM read_csv({literal(str(export))}) ORDER BY id;") == (
                 "1\tAlice\t98.5\thello,<NL>world\n"
@@ -214,15 +225,26 @@ def main():
             # an existing file is never overwritten
             sql(f"COPY (SELECT id FROM {csv}) TO {target(export)} (format csv, header);", error=True)
             assert export.read_text(encoding="utf-8").splitlines()[0] == "id,name,score,note"
-            # unless the user asks for it
-            sql(f"COPY (SELECT id FROM {csv}) TO {target(export)} (format csv, header, overwrite true);")
-            assert export.read_text(encoding="utf-8").splitlines()[0] == "id"
+            # This task requires no overwrite, even if an overwrite option is requested.
+            original_export = export.read_bytes()
+            sql(f"COPY (SELECT id FROM {csv}) TO {target(export)} (overwrite true);", error=True)
+            assert export.read_bytes() == original_export
             # the null text is written as configured
             nulls = data / "nulls.csv"
             sql(f"COPY (SELECT id,day FROM {csv} ORDER BY id) TO {target(nulls)} "
                 f"(format csv, header, nullstr 'NULL');")
             assert nulls.read_text(encoding="utf-8").splitlines() == [
                 "id,day", '1,"2026-08-01"', "2,NULL", '3,"2026-08-03"', "4,NULL"]
+            values = data / "null-and-empty.csv"
+            sql(f"COPY (SELECT NULL AS n,'' AS e,'NULL' AS s) TO {target(values)} "
+                "(header, nullstr 'NULL');")
+            assert sql(f"SELECT n IS NULL,e='',s='NULL' FROM "
+                       f"read_csv({literal(str(values))},nullstr='NULL');") == "1\t1\t1"
+            custom = data / "custom.csv"
+            sql(f"COPY (SELECT 'a;b' AS `x;y`,'q!z' AS z) TO {target(custom)} "
+                "(header, delimiter ';', quote '|', escape '!');")
+            assert sql(f"SELECT * FROM read_csv({literal(str(custom))},"
+                       "delim=';',quote='|',escape='!');") == "a;b\tq!z"
             # a table can be exported as well
             sql("CREATE TABLE file_copy_base(id BIGINT, name VARCHAR(32));")
             try:
@@ -232,13 +254,26 @@ def main():
                     f"(format csv, header, nullstr 'NULL');")
                 assert table_export.read_text(encoding="utf-8").splitlines() == [
                     "id,name", '1,"a"', "2,NULL"]
+                failed = data / "failed-export.csv"
+                sql(f"COPY (SELECT JSON_EXTRACT(IF(id=2,'invalid','{{}}'),'$') "
+                    f"FROM file_copy_base) TO {target(failed)} (header);", error=True)
+                assert not failed.exists(), "Failed COPY left a partial export"
             finally:
                 sql("DROP TABLE file_copy_base;")
             # the export is part of the file SQL feature
             sql(f"COPY (SELECT id FROM {csv}) TO {target(data / 'off.csv')} (format csv);",
                 enabled=False, error=True)
-            for options in ["format json", "unknown_option 1", "delimiter ';;'"]:
+            for options in ["format json", "unknown_option 1", "delimiter ';;'",
+                            "delimiter ',' , quote ','", "nullstr 'a,b'", "or_replace"]:
                 sql(f"COPY (SELECT id FROM {csv}) TO {target(data / 'bad.csv')} ({options});", error=True)
+            sql(f"COPY (SELECT 1) TO {target(outside)};", error=True)
+            assert outside.read_text(encoding="utf-8") == "id\n999\n"
+            sql("SET GLOBAL secure_file_priv='';", enabled=False)
+            try:
+                sql(f"COPY (SELECT 1) TO {target(data / 'empty-policy.csv')};", error=True)
+                assert not (data / "empty-policy.csv").exists()
+            finally:
+                sql("SET GLOBAL secure_file_priv=" + literal(str(data)) + ";", enabled=False)
             print("PASS native COPY: query and table export, header, null text, "
                   "no overwrite, option checks", flush=True)
         finally:

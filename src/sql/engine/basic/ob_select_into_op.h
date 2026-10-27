@@ -274,7 +274,6 @@ private:
   int new_data_writer(ObExternalFileWriter *&data_writer);
   int check_secure_file_path(ObString file_name);
   int check_copy_target_not_exist();
-  int remove_existing_copy_target();
   int write_copy_header(ObCsvFileWriter &data_writer);
   int write_copy_null_text(ObCsvFileWriter &data_writer);
   int write_copy_text(const ObString &text, ObCsvFileWriter &data_writer);

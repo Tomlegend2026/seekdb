@@ -75,7 +75,7 @@ python3 unittest/sql/file_sql_integration.py \
 
 - 语法：`COPY '(' select_stmt ')' TO STRING_VALUE opt_copy_option_list`，以及 `COPY tbl_name TO STRING_VALUE opt_copy_option_list`；表形式等价于 `COPY (SELECT * FROM 表) TO ...`。`COPY` 沿用仓库既有的非保留关键字，不改变关键字表。
 - 选项：`format csv`（仅支持 csv）、`header`（裸写、`true`、`false`）、`nullstr` / `null`、`delimiter` / `sep`、`quote`、`escape`、`overwrite` / `or_replace`（默认禁止覆盖）。取值支持布尔字面量、字符串字面量、标识符和整数字面量。
-- 默认禁止覆盖已有文件，报 `OB_FILE_ALREADY_EXIST`；`overwrite true` 允许替换。底层文件写入器使用 `O_EXCL` 打开（与 MySQL `INTO OUTFILE` 一致），因此允许覆盖时会先移除旧文件再创建。
+- 按题目要求禁止覆盖已有文件，报 `OB_FILE_ALREADY_EXIST`；`overwrite true`、裸 `overwrite` 和 `or_replace` 均拒绝，不再先删除已有文件。底层文件写入器继续使用 `O_EXCL` 防止检查后出现文件的竞争覆盖。
 - `header` 写出的列名取自优化器阶段的投影列（别名优先），`nullstr` 写出的 NULL 文本不加引号，字符串列仍按 CSV 规则加引号与转义。
 - 导出失败时删除半成品文件，不留残缺文件；空结果也会落盘表头行。
 - COPY 语句不参与 PS 参数化：选项值会被解析进计划，若被参数化则不同选项值的语句会共用同一份缓存计划（`header false` 与 `header true` 会串味）。因此在 `ObSqlParameterization::mark_tree` 中把 `T_COPY_OUTFILE` 标记为不可参数化，使其保留在计划缓存键中。
@@ -89,4 +89,8 @@ python3 unittest/sql/file_sql_official_case.py \
   --socket /home/tom/oceanbase2026-filesql-test-instance/run/sql.sock
 ```
 
-集成脚本覆盖查询导出、表导出、表头、NULL 文本、禁止覆盖、显式覆盖、非法选项与关闭功能开关时的报错；`file_sql_official_case.py` 复现官方 `tools/deploy/mysql_test/test_suite/file_sql` 用例的语句与期望输出，逐段比对（Parquet 段在实现前标记为 PENDING）。两者均通过，扫描回归 63 项通过，完整 seekdb 构建通过。
+集成脚本覆盖查询导出、表导出、表头、NULL 文本、禁止覆盖、非法选项与关闭功能开关时的报错；`file_sql_official_case.py` 复现官方 `tools/deploy/mysql_test/test_suite/file_sql` 用例的语句与期望输出。Parquet 仍未实现，默认完整验收会失败；开发期间显式传 `--allow-incomplete` 才允许跳过，并输出 PARTIAL，不宣称整题通过。
+
+2026-10-27 复核 MiniMax 提交 `185724e`：新增的特殊表头测试先在原程序中失败，修复后完整构建、63 项扫描回归及原生 SQL 联调七组均通过。新增边界包括含逗号、引号、中文和换行的表头（Python csv 与原生 read_csv 双重读回）、空结果表头、NULL/空字符串/字面 NULL 的区分、自定义分隔符及转义、拒绝覆盖且原文件不变、运行时 JSON 错误后删除半成品、路径越界及空 secure_file_priv 拒绝。COPY 现在也复用 session_policy，解析阶段检查 enable_file_sql、FILE 权限和非空安全目录。
+
+文件创建成功后立即登记清理状态，避免表头或缓冲初始化失败时漏清理；关闭/刷新报错会触发清理并释放描述符，清理结果不再覆盖原有错误。关闭/刷新故障分支经代码检查，尚未做系统调用故障注入，不把运行时 JSON 错误测试当作该分支的故障注入证据。

@@ -333,11 +333,16 @@ int ObSelectIntoOp::inner_close()
 {
   int ret = OB_SUCCESS;
   if (OB_NOT_NULL(data_writer_) && OB_FAIL(data_writer_->close_data_writer())) {
+    if (is_copy_) {
+      export_failed_ = true;
+      // close_data_writer short-circuits after a flush failure. Always release
+      // the descriptor before cleaning up an unsuccessful COPY.
+      data_writer_->file_appender_.close();
+    }
   }
   if (export_failed_) {
-    // the export did not finish, the half written file is removed
-    if (OB_FAIL(remove_copy_target_file())) {
-    }
+    const int cleanup_ret = remove_copy_target_file();
+    if (OB_SUCC(ret)) { ret = cleanup_ret; }
   }
   return ret;
 }
@@ -1255,9 +1260,9 @@ int ObSelectIntoOp::create_the_only_data_writer(ObExternalFileWriter *&data_writ
   }
   if (OB_FAIL(ret)) {
   } else if (is_copy_ && no_overwrite_ && OB_FAIL(check_copy_target_not_exist())) {
-  } else if (is_copy_ && !no_overwrite_ && OB_FAIL(remove_existing_copy_target())) {
   } else if (T_INTO_OUTFILE == MY_SPEC.into_type_ && MY_SPEC.is_single_
              && OB_FAIL(data_writer->open_file())) {
+  } else if (is_copy_ && OB_FALSE_IT(file_created_ = true)) {
   } else if (ObExternalFileFormat::FormatType::CSV_FORMAT == format_type_ && MY_SPEC.buffer_size_ > 0) {
     csv_data_writer = static_cast<ObCsvFileWriter*>(data_writer);
     if (OB_FAIL(csv_data_writer->alloc_buf(ctx_.get_allocator(), MY_SPEC.buffer_size_))) {
@@ -1269,9 +1274,6 @@ int ObSelectIntoOp::create_the_only_data_writer(ObExternalFileWriter *&data_writ
     }
     if (OB_SUCC(ret) && OB_FAIL(write_copy_header(*csv_data_writer))) {
     }
-  }
-  if (OB_SUCC(ret) && is_copy_) {
-    file_created_ = true;
   }
   return ret;
 }
@@ -1293,25 +1295,6 @@ int ObSelectIntoOp::check_copy_target_not_exist()
   return ret;
 }
 
-// The file writer creates the target file exclusively, so an existing file has
-// to be removed first when the user asked to overwrite it.
-int ObSelectIntoOp::remove_existing_copy_target()
-{
-  int ret = OB_SUCCESS;
-  bool exists = false;
-  if (OB_ISNULL(basic_url_.ptr())) {
-    ret = OB_INVALID_ARGUMENT;
-    LOG_USER_ERROR(OB_INVALID_ARGUMENT, "invalid outfile path");
-  } else if (OB_FAIL(FileDirectoryUtils::is_exists(basic_url_.ptr(), exists))) {
-    LOG_WARN("failed to check the copy target", K(ret), K(basic_url_.length()));
-  } else if (exists) {
-    if (OB_FAIL(FileDirectoryUtils::delete_file(basic_url_.ptr()))) {
-      LOG_WARN("failed to remove the copy target", K(ret), K(basic_url_.length()));
-    }
-  }
-  return ret;
-}
-
 // The header line of a COPY export holds the output column names.
 int ObSelectIntoOp::write_copy_header(ObCsvFileWriter &data_writer)
 {
@@ -1322,7 +1305,21 @@ int ObSelectIntoOp::write_copy_header(ObCsvFileWriter &data_writer)
       OZ(write_obj_to_file(field_str_, data_writer));
     }
     if (OB_SUCC(ret)) {
-      OZ(write_copy_text(header_names.at(i), data_writer));
+      const ObString &name = header_names.at(i);
+      bool quote = name.empty() || name == null_str_;
+      for (int64_t j = 0; j < name.length(); ++j) {
+        const char ch = name.ptr()[j];
+        quote |= ch == char_enclose_ || ch == char_escape_ || ch == '\r' || ch == '\n'
+            || ch == field_str_.get_varchar().ptr()[0];
+      }
+      if (quote) {
+        ObObj value;
+        value.set_varchar(name);
+        value.set_collation_type(cs_type_);
+        OZ(print_field(value, data_writer));
+      } else {
+        OZ(write_copy_text(name, data_writer));
+      }
     }
   }
   if (OB_SUCC(ret)) {
@@ -1358,7 +1355,8 @@ int ObSelectIntoOp::remove_copy_target_file()
   int ret = OB_SUCCESS;
   if (is_copy_ && file_created_ && OB_NOT_NULL(basic_url_.ptr())) {
     int tmp_ret = FileDirectoryUtils::delete_file(basic_url_.ptr());
-    if (OB_FAIL(tmp_ret)) {
+    if (OB_SUCCESS != tmp_ret) {
+      ret = tmp_ret;
       LOG_WARN("failed to remove the incomplete copy target", K(tmp_ret), K(basic_url_.length()));
     }
   }

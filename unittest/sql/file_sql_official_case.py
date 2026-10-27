@@ -6,8 +6,8 @@ and its expected output in r/mysql/file_sql_basic.result. The script prepares th
 same fixtures in a private directory, restricts secure_file_priv to it and
 restores the original policy on exit.
 
-Sections that are not implemented yet are reported as SKIP instead of failing,
-so the script can be used while the feature is being built up.
+By default any missing section fails. --allow-incomplete explicitly permits a
+partial developer run; its final result is never labelled as a complete pass.
 """
 import argparse
 import base64
@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--port", type=int, default=2882)
     parser.add_argument("--user", default="root")
     parser.add_argument("--socket", help="Local server socket, required to configure secure_file_priv")
+    parser.add_argument("--allow-incomplete", action="store_true")
     args = parser.parse_args()
     if args.socket:
         command = [args.mysql_client, "--protocol=socket", "--socket=" + args.socket,
@@ -147,6 +148,8 @@ def main():
                               "SUM(c1) AS sum_c1 FROM read_parquet("
                               + literal(str(data / "simple.parquet")) + ") p;")
             except RuntimeError as error:
+                if not args.allow_incomplete:
+                    raise
                 print("PENDING Parquet scan: " + str(error).splitlines()[0], flush=True)
             else:
                 check("Parquet scan", parquet, PARQUET_ROWS)
@@ -155,7 +158,8 @@ def main():
             raise
         finally:
             sql("SET GLOBAL secure_file_priv=" + restore + ";", enabled=False)
-    print("OFFICIAL FILE SQL CASE PASSED", flush=True)
+    print("PARTIAL FILE SQL CHECK COMPLETED (--allow-incomplete)" if args.allow_incomplete
+          else "OFFICIAL FILE SQL CASE PASSED", flush=True)
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,7 @@
  */
 
 #define USING_LOG_PREFIX SQL_RESV
+#include "sql/engine/basic/file_scan_native.h"
 #include "sql/resolver/dml/ob_select_resolver.h"
 #include "sql/resolver/dml/ob_del_upd_resolver.h"
 #include "share/ob_time_utility2.h"
@@ -3084,13 +3085,10 @@ int ObSelectResolver::resolve_into_outfile_without_format(const ParseNode *node,
 int ObSelectResolver::check_copy_file_sql_enabled()
 {
   int ret = OB_SUCCESS;
-  bool enabled = false;
+  file_scan::FilePolicy policy;
   if (OB_ISNULL(params_.session_info_)) {
     ret = OB_ERR_UNEXPECTED;
-  } else if (OB_FAIL(params_.session_info_->get_sys_variable(share::SYS_VAR_ENABLE_FILE_SQL, enabled))) {
-  } else if (!enabled) {
-    ret = OB_NOT_SUPPORTED;
-    LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY while enable_file_sql is OFF");
+  } else if (OB_FAIL(file_scan::session_policy(*params_.session_info_, policy))) {
   }
   return ret;
 }
@@ -3126,6 +3124,24 @@ int ObSelectResolver::resolve_copy_outfile(const ParseNode *node, ObSelectIntoIt
     into_item.is_optional_ = true;
     into_item.cs_type_ = cs_type;
     if (OB_SUCC(ret) && OB_FAIL(resolve_copy_option(node->children_[1], into_item))) {
+    }
+    if (OB_SUCC(ret)) {
+      const char delimiter = into_item.field_str_.get_varchar().ptr()[0];
+      const char quote = into_item.closed_cht_.get_char().ptr()[0];
+      const char escape = into_item.escaped_cht_.get_char().ptr()[0];
+      const auto invalid = [](char ch) { return ch == '\0' || ch == '\r' || ch == '\n'; };
+      if (invalid(delimiter) || invalid(quote) || invalid(escape)
+          || delimiter == quote || delimiter == escape) {
+        ret = OB_INVALID_ARGUMENT;
+        LOG_USER_ERROR(OB_INVALID_ARGUMENT, "COPY delimiter/quote/escape conflict or contain control characters");
+      }
+      for (int64_t i = 0; OB_SUCC(ret) && i < into_item.null_str_.length(); ++i) {
+        const char ch = into_item.null_str_.ptr()[i];
+        if (invalid(ch) || ch == delimiter || ch == quote || ch == escape) {
+          ret = OB_INVALID_ARGUMENT;
+          LOG_USER_ERROR(OB_INVALID_ARGUMENT, "COPY nullstr cannot contain CSV structural characters");
+        }
+      }
     }
   }
   return ret;
@@ -3276,6 +3292,10 @@ int ObSelectResolver::resolve_copy_option_node(const ParseNode *node, ObSelectIn
   } else {
     ret = OB_NOT_SUPPORTED;
     LOG_USER_ERROR(OB_NOT_SUPPORTED, "unsupported COPY option");
+  }
+  if (OB_SUCC(ret) && !into_item.no_overwrite_) {
+    ret = OB_NOT_SUPPORTED;
+    LOG_USER_ERROR(OB_NOT_SUPPORTED, "COPY overwriting an existing file");
   }
   return ret;
 }
