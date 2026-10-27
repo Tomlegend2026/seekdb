@@ -1,6 +1,8 @@
 # FileSQL 扫描基础
 
-当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流及 seekdb 原生 SQL 接入，并通过真实 SQL 联调。**整题尚未完成**：Parquet、glob、COPY 和 DESCRIBE 返回列元数据仍未实现。
+当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现及 seekdb 原生 SQL 接入，并通过真实 SQL 联调。**整题尚未完成**：Parquet、COPY 和 DESCRIBE 返回列元数据仍未实现。
+
+2026-10-27：glob 已随提交 `1eb0b60` 上传。全部扫描回归 61 项通过；其中 19 项 glob 测试另经 GCC 严格警告、AddressSanitizer / UndefinedBehaviorSanitizer 执行通过。原生 SQL 联调通过文件列、排序、过滤、相对与绝对模式、空匹配及路径边界检查。glob 只发现文件并返回单列 `file`，不自动合并文件内容。目录项在追加前受结果数量 / 遍历数量限制，拒绝符号链接，错误时不发布部分结果。
 
 实现位于 `src/sql/engine/basic/file_scan_utils.{h,cpp}`。读取器只保留一条记录；全量推断保留列结构和当前记录，支持重开文件后进入第二遍执行扫描。文件必须由后续安全层校验并打开；该工具不自行打开路径。
 
