@@ -117,6 +117,15 @@ def main():
             dynamic.write_text("value\nchanged-type\n", encoding="utf-8")
             assert sql(query) == "changed-type"
             print("PASS dynamic schema does not reuse a stale cached projection", flush=True)
+
+            listing = "glob(" + literal(str(data / "*.csv")) + ")"
+            sql(f"SELECT COUNT(*) FROM {listing};", enabled=False, error=True)
+            assert sql(f"SELECT SUBSTRING_INDEX(file,'/',-1) FROM {listing} ORDER BY file;") == "bad.csv\nbasic.csv\ndynamic.csv\nno_header.csv"
+            assert sql("SELECT COUNT(*) FROM glob('*.csv');") == "4"
+            assert sql(f"SELECT COUNT(*) FROM {listing} g WHERE g.file LIKE '%/basic.csv';") == "1"
+            assert sql("SELECT COUNT(*) FROM glob(" + literal(str(data / "*.absent")) + ");") == "0"
+            sql("SELECT * FROM glob(" + literal(str(outside)) + ");", error=True)
+            print("PASS native glob: sorted regular files, wildcard, empty matches, path boundary", flush=True)
         finally:
             if changed_policy:
                 sql("SET GLOBAL secure_file_priv=" + restore + ";", enabled=False)

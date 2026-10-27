@@ -10,6 +10,7 @@ struct QueryOptions
 {
   std::string path;
   bool json = false;
+  bool glob = false;
   CsvOptions csv;
 };
 
@@ -25,6 +26,9 @@ public:
 private:
   SecureFile file_;
   QueryOptions options_;
+  FilePolicy policy_;
+  std::vector<std::string> files_;
+  size_t file_position_ = 0;
   CsvSchema schema_;
   std::string fingerprint_;
   std::unique_ptr<CsvReader> csv_;

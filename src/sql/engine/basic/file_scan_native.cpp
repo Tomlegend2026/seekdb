@@ -63,7 +63,7 @@ ObObjType native_type(Type type)
 
 std::vector<std::string> query_metadata(const QueryOptions &options, const std::string &fingerprint)
 {
-  return {options.json ? "jsonl" : "csv", options.path, options.csv.header ? "1" : "0",
+  return {options.glob ? "glob" : options.json ? "jsonl" : "csv", options.path, options.csv.header ? "1" : "0",
       std::string(1, options.csv.delimiter), std::string(1, options.csv.quote),
       std::string(1, options.csv.escape), options.csv.null_text, fingerprint};
 }
@@ -74,11 +74,12 @@ int query_from_metadata(const ObIArray<ObString> &metadata, QueryOptions &option
   const auto value = [&metadata](int index) {
     return std::string(metadata.at(index).ptr(), metadata.at(index).length());
   };
-  if ((value(0) != "csv" && value(0) != "jsonl") || (value(2) != "0" && value(2) != "1")
+  if ((value(0) != "csv" && value(0) != "jsonl" && value(0) != "glob") || (value(2) != "0" && value(2) != "1")
       || metadata.at(3).length() != 1 || metadata.at(4).length() != 1 || metadata.at(5).length() != 1) {
     return OB_INVALID_ARGUMENT;
   }
   options.json = value(0) == "jsonl";
+  options.glob = value(0) == "glob";
   options.path = value(1);
   options.csv.header = value(2) == "1";
   options.csv.delimiter = metadata.at(3).ptr()[0];

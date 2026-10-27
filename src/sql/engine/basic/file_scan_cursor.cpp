@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 OceanBase. Licensed under the Apache License, Version 2.0. */
 #include "file_scan_cursor.h"
+#include "file_scan_glob.h"
 
 namespace oceanbase::sql::file_scan
 {
@@ -7,9 +8,24 @@ Status FileCursor::prepare(const FilePolicy &policy, const QueryOptions &options
 {
   csv_.reset();
   json_.reset();
+  file_.close();
   prepared_ = false;
   fingerprint_.clear();
   options_ = options;
+  policy_ = policy;
+  files_.clear();
+  file_position_ = 0;
+  if (options.glob) {
+    const auto status = discover_files(policy, options.path, files_, diagnostic_);
+    if (status != Status::OK) { return status; }
+    schema_.names = {"file"};
+    schema_.types = {Type::VARCHAR};
+    schema_.row_count = files_.size();
+    fingerprint_ = "glob:";
+    for (const auto &file : files_) { fingerprint_ += std::to_string(file.size()) + ":" + file; }
+    prepared_ = true;
+    return Status::OK;
+  }
   auto status = file_.open(policy, options.path);
   if (status != Status::OK) { diagnostic_ = file_.diagnostic(); return status; }
   status = options.json ? infer_json_schema(file_.stream(), {}, schema_, diagnostic_)
@@ -24,6 +40,18 @@ Status FileCursor::prepare(const FilePolicy &policy, const QueryOptions &options
 Status FileCursor::rewind()
 {
   if (!prepared_) { diagnostic_.message = "File cursor has no valid schema"; return Status::INVALID; }
+  if (options_.glob) {
+    std::vector<std::string> current;
+    const auto status = discover_files(policy_, options_.path, current, diagnostic_);
+    if (status != Status::OK) { prepared_ = false; return status; }
+    if (current != files_) {
+      prepared_ = false;
+      diagnostic_.message = "Glob listing changed before rescan";
+      return Status::IO_ERROR;
+    }
+    file_position_ = 0;
+    return Status::OK;
+  }
   auto status = file_.rewind();
   if (status != Status::OK) { diagnostic_ = file_.diagnostic(); return status; }
   csv_.reset();
@@ -45,6 +73,12 @@ Status FileCursor::rewind()
 Status FileCursor::next(std::vector<Field> &row)
 {
   if (!prepared_) { row.clear(); diagnostic_.message = "File cursor has no valid schema"; return Status::INVALID; }
+  if (options_.glob) {
+    row.clear();
+    if (file_position_ >= files_.size()) { return Status::END; }
+    row.push_back({files_[file_position_++], false});
+    return Status::OK;
+  }
   auto status = file_.validate();
   if (status != Status::OK) { row.clear(); diagnostic_ = file_.diagnostic(); return status; }
   if (json_) {

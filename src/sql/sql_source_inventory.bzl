@@ -1661,6 +1661,7 @@ SQL_SIMD_UNITY_GROUPS = [
 ]
 
 SQL_STANDALONE_SOURCES = [
+    struct(path = "src/sql/engine/basic/file_scan_glob.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_utils.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_file.cpp", language = "c++", kind = "source"),
     struct(path = "src/sql/engine/basic/file_scan_json.cpp", language = "c++", kind = "source"),

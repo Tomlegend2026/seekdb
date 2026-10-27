@@ -223,3 +223,23 @@ TEST_F(SecureFileTest, FailedPrepareCannotReviveAnOldSchema)
   std::vector<Field> row;
   EXPECT_EQ(Status::INVALID, cursor.next(row));
 }
+
+TEST_F(SecureFileTest, GlobCursorReturnsPathsAndRejectsChangedRescans)
+{
+  QueryOptions options;
+  options.path = "sub/*.csv";
+  options.glob = true;
+  FileCursor cursor;
+  ASSERT_EQ(Status::OK, cursor.prepare(policy, options));
+  EXPECT_EQ((std::vector<std::string>{"file"}), cursor.schema().names);
+  EXPECT_EQ((std::vector<Type>{Type::VARCHAR}), cursor.schema().types);
+  std::vector<Field> row;
+  ASSERT_EQ(Status::OK, cursor.next(row));
+  ASSERT_EQ(1U, row.size());
+  EXPECT_EQ((base / "allowed/sub/data.csv").string(), row[0].text);
+  ASSERT_EQ(Status::END, cursor.next(row));
+  ASSERT_EQ(Status::OK, cursor.rewind());
+  write("allowed/sub/new.csv", "id\n2\n");
+  EXPECT_EQ(Status::IO_ERROR, cursor.rewind());
+  EXPECT_EQ(Status::INVALID, cursor.next(row));
+}

@@ -422,6 +422,7 @@ SQL_COMPOSITION_HEADERS = [
 ]
 
 SQL_PRIVATE_HEADERS = [
+    "engine/basic/file_scan_glob.h",
     "engine/basic/file_scan_utils.h",
     "engine/basic/file_scan_file.h",
     "engine/basic/file_scan_json.h",

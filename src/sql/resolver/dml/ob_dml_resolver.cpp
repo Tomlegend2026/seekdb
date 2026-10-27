@@ -3696,7 +3696,8 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
   QueryOptions options;
   const auto function = text(node.children_[0]);
   options.json = function == "read_json" || function == "read_ndjson";
-  if (function != "read_csv" && !options.json) {
+  options.glob = function == "glob";
+  if (function != "read_csv" && !options.json && !options.glob) {
     LOG_USER_ERROR(OB_NOT_SUPPORTED, "This file reader");
     return OB_NOT_SUPPORTED;
   }
@@ -3704,6 +3705,7 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
   if (OB_FAIL(session_policy(*session_info_, policy))) { return ret; }
   ParseNode &args = *node.children_[1];
   if (args.type_ != T_EXPR_LIST || args.num_child_ < 1) { return OB_INVALID_ARGUMENT; }
+  if (options.glob && args.num_child_ != 1) { return OB_INVALID_ARGUMENT; }
   auto constant = [&](const ParseNode *arg, ObObj &value) -> int {
     int result = OB_SUCCESS;
     ObRawExpr *expr = nullptr;
