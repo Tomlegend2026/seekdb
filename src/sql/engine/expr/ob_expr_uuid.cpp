@@ -23,6 +23,9 @@
 #endif
 #include <iphlpapi.h>
 #else
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #ifdef __APPLE__
@@ -31,8 +34,6 @@
 #elif defined(__ANDROID__)
 #include <ifaddrs.h>
 #include <linux/if_packet.h>
-#include <fcntl.h>
-#include <unistd.h>
 #endif
 #endif
 #include "sql/engine/expr/ob_expr_uuid.h"
@@ -193,12 +194,13 @@ int ObUUIDNode::init()
   int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
   if (sock == -1) {
     ret = OB_ERR_UNEXPECTED;
-    LOG_ERROR("socket failed", K(ret), K(errno));
+    LOG_WARN("cannot open UUID network socket; trying random node", K(ret), K(errno));
   } else {
     ifc.ifc_len = sizeof(buf);
     ifc.ifc_buf = buf;
     if (ioctl(sock, SIOCGIFCONF, &ifc) < 0) {
       ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("cannot enumerate network interfaces for UUID", K(ret), K(errno));
     } else {
       ifreq *it = ifc.ifc_req;
       ifreq *end = it + (ifc.ifc_len / sizeof(ifreq));
@@ -231,6 +233,41 @@ int ObUUIDNode::init()
       }
     }
     close(sock);
+  }
+  if (!is_inited_) {
+    // RFC 4122 section 4.5 permits a random node when a MAC is unavailable.
+    // Publish it only after reading all six bytes, and mark it as non-IEEE.
+    unsigned char random_node[sizeof(mac_addr_)];
+    int random_fd;
+    do {
+      random_fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    } while (random_fd < 0 && errno == EINTR);
+    if (random_fd < 0) {
+      ret = OB_ERR_UNEXPECTED;
+      LOG_WARN("cannot open UUID node entropy source", K(ret), K(errno));
+    } else {
+      size_t filled = 0;
+      while (filled < sizeof(random_node)) {
+        const ssize_t bytes = read(random_fd, random_node + filled, sizeof(random_node) - filled);
+        if (bytes > 0) {
+          filled += static_cast<size_t>(bytes);
+        } else if (bytes < 0 && errno == EINTR) {
+          continue;
+        } else {
+          ret = OB_ERR_UNEXPECTED;
+          LOG_WARN("cannot read complete UUID node entropy", K(ret), K(errno), K(bytes), K(filled));
+          break;
+        }
+      }
+      close(random_fd);
+      if (filled == sizeof(random_node)) {
+        random_node[0] |= 0x01;
+        MEMCPY(mac_addr_, random_node, sizeof(mac_addr_));
+        is_inited_ = true;
+        ret = OB_SUCCESS;
+        LOG_INFO("using random UUID node ID because no MAC address is available");
+      }
+    }
   }
 #endif
   return ret;
