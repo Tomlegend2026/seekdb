@@ -1,0 +1,38 @@
+# owner: oceanbase
+# owner group: sql
+# tags: optimizer, resolver
+# description: issue #1477, IFNULL with a boolean scalar subquery and an even NOT chain
+# returns -4016; the result type of the removed NOT expressions must be kept
+
+--disable_query_log
+--disable_warnings
+drop table if exists t_ifnull_dbl_not;
+--enable_warnings
+--enable_query_log
+
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+SELECT 1 FROM dual WHERE IFNULL((SELECT TRUE), !(!(1 LIKE 'x')));
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(!(!(1 LIKE 'x')))));
+SELECT 1 FROM dual WHERE !IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+SELECT 1 FROM dual HAVING IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+
+# control cases from the issue
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(1 LIKE 'x'));
+SELECT 1 FROM dual WHERE IFNULL(FALSE, !(!(1 LIKE 'x')));
+
+# value context and boolean semantics of the rewritten expression
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE 'x'))) AS i1;
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE 'y'))) AS i2;
+SELECT IFNULL((SELECT NULL), !(!(1 LIKE 'x'))) AS i3;
+SELECT IFNULL((SELECT TRUE), !(!(1 LIKE 'x'))) AS i4;
+SELECT IFNULL(NULL, !(!(1 LIKE 'x'))) AS i5;
+
+# row-dependent operands and NULL propagation; the double NOT keeps the
+# coercion of its operand, so NULL of the operand is not changed
+create table t_ifnull_dbl_not(c1 int, c2 varchar(10));
+insert into t_ifnull_dbl_not values(1, 'x'), (2, 'xy'), (3, NULL), (4, 'z');
+SELECT c1, !(!(c2 LIKE 'x')) AS c FROM t_ifnull_dbl_not ORDER BY c1;
+SELECT c1, c2 LIKE 'x' AS like_ret FROM t_ifnull_dbl_not ORDER BY c1;
+SELECT c1, IFNULL((SELECT FALSE), !(!(c2 LIKE 'x'))) AS r FROM t_ifnull_dbl_not ORDER BY c1;
+
+drop table t_ifnull_dbl_not;

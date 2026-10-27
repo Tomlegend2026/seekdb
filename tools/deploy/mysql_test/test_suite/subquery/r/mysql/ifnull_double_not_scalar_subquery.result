@@ -1,0 +1,52 @@
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+1
+SELECT 1 FROM dual WHERE IFNULL((SELECT TRUE), !(!(1 LIKE 'x')));
+1
+1
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(!(!(!(1 LIKE 'x')))));
+1
+SELECT 1 FROM dual WHERE !IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+1
+1
+SELECT 1 FROM dual HAVING IFNULL((SELECT FALSE), !(!(1 LIKE 'x')));
+1
+SELECT 1 FROM dual WHERE IFNULL((SELECT FALSE), !(1 LIKE 'x'));
+1
+SELECT 1 FROM dual WHERE IFNULL(FALSE, !(!(1 LIKE 'x')));
+1
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE 'x'))) AS i1;
+i1
+0
+SELECT IFNULL((SELECT FALSE), !(!(1 LIKE 'y'))) AS i2;
+i2
+0
+SELECT IFNULL((SELECT NULL), !(!(1 LIKE 'x'))) AS i3;
+i3
+0
+SELECT IFNULL((SELECT TRUE), !(!(1 LIKE 'x'))) AS i4;
+i4
+1
+SELECT IFNULL(NULL, !(!(1 LIKE 'x'))) AS i5;
+i5
+0
+create table t_ifnull_dbl_not(c1 int, c2 varchar(10));
+insert into t_ifnull_dbl_not values(1, 'x'), (2, 'xy'), (3, NULL), (4, 'z');
+SELECT c1, !(!(c2 LIKE 'x')) AS c FROM t_ifnull_dbl_not ORDER BY c1;
+c1	c
+1	1
+2	0
+3	NULL
+4	0
+SELECT c1, c2 LIKE 'x' AS like_ret FROM t_ifnull_dbl_not ORDER BY c1;
+c1	like_ret
+1	1
+2	0
+3	NULL
+4	0
+SELECT c1, IFNULL((SELECT FALSE), !(!(c2 LIKE 'x'))) AS r FROM t_ifnull_dbl_not ORDER BY c1;
+c1	r
+1	0
+2	0
+3	0
+4	0
+drop table t_ifnull_dbl_not;
