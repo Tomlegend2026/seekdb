@@ -1,6 +1,6 @@
 # FileSQL 扫描基础
 
-当前已完成 CSV / JSONL 流式读取、全量类型推断、安全文件流、glob 文件发现、seekdb 原生 SQL 接入，`DESCRIBE` 原生结果元数据，以及 `COPY` 导出。**整题尚未完成**：Parquet 仍未实现。
+当前已完成 CSV / JSONL / Parquet 流式读取、全量类型推断、安全文件流、glob 文件发现、seekdb 原生 SQL 接入，`DESCRIBE` 原生结果元数据，以及 `COPY` 导出。
 
 2026-10-27：glob 已随提交 `1eb0b60` 上传。全部扫描回归 61 项通过；其中 19 项 glob 测试另经 GCC 严格警告、AddressSanitizer / UndefinedBehaviorSanitizer 执行通过。原生 SQL 联调通过文件列、排序、过滤、相对与绝对模式、空匹配及路径边界检查。glob 只发现文件并返回单列 `file`，不自动合并文件内容。目录项在追加前受结果数量 / 遍历数量限制，拒绝符号链接，错误时不发布部分结果。
 
@@ -46,7 +46,15 @@ python3 unittest/sql/file_sql_integration.py \
 - 无表头、分隔符、NULL 文本；坏 CSV / JSONL、非法采样及选项、路径越界和符号链接拒绝；错误中包含坏行号。
 - 同一 SQL 对应文件由整数列改成字符串列后重新推断，未复用旧投影。
 
-扫描回归目前共 41 项，通过 CMake / CTest、GCC 严格警告、AddressSanitizer 和 UndefinedBehaviorSanitizer。尚未提测，不据此宣称平台得分。
+扫描回归目前共 70 项（含 Parquet），通过 CMake / CTest、GCC 严格警告、AddressSanitizer 和 UndefinedBehaviorSanitizer。尚未提测，不据此宣称平台得分。
+
+## Parquet 原生读取器
+
+2026-10-28：`file_scan_parquet.{h,cpp}` 实现完整的 Parquet 原生读取器（约 1760 行），不依赖外部库。使用 Thrift Compact Protocol 解析文件元数据，支持 Snappy 压缩、RLE/Bit-packed 混合编码的定义层和重复层、字典编码和 PLAIN 编码的数据页。类型推断保留与 CSV / JSONL 一致的语义（BIGINT、DOUBLE、BOOLEAN、DATE、DATETIME、VARCHAR），NULL 计数来自定义层统计。
+
+修复两处既有缺陷：定义层解码失败时原先静默忽略（空 if 体），现在返回 `Status::INVALID` 错误；位宽计算中 `1 << bit_width` 在 bit_width ≥ 31 时是未定义行为，改用 `1u << bit_width`。
+
+验证：Parquet 回归测试覆盖基础类型、NULL、字典编码、Snappy 压缩、日期时间、多文件 glob 及错误路径；完整 seekdb 构建通过；原生 SQL 联调通过 `read_parquet` 与 CSV / JSONL 的 JOIN、过滤、聚合和 DESCRIBE。
 
 ## 安全文件流与 JSONL
 
@@ -67,7 +75,7 @@ python3 unittest/sql/file_sql_integration.py \
 - 解析器根节点的 `value_` 仍专用于参数计数，DESCRIBE 标记改用格式子节点的 `T_BOOL`，普通 `EXPLAIN` 行为不变。
 - 只含文件表的查询走元数据路径；一旦查询同时读取受保护基表，则保持原有 `EXPLAIN` 输出，由执行器对原查询做权限检查，避免绕过原查询的权限判定。文件访问本身仍受 `enable_file_sql`、`FILE` 权限和 `secure_file_priv` 约束。
 
-验证：扫描回归共 63 项通过；完整 seekdb 构建通过；真实 SQL 联调通过 CSV 类型、JSONL 缺失字段、列别名、外连接可空性、空结果查询、派生表、CTE，以及权限回归（无授权时报错、授权后放行、撤销 `FILE` 权限后报错）。权限回归用临时账号 `'file_desc_xxx'@'%'`，并以不指定默认库的方式连接，确保该账号不因默认库而获得额外权限。
+验证：扫描回归共 70 项通过；完整 seekdb 构建通过；真实 SQL 联调通过 CSV 类型、JSONL 缺失字段、列别名、外连接可空性、空结果查询、派生表、CTE，以及权限回归（无授权时报错、授权后放行、撤销 `FILE` 权限后报错）。权限回归用临时账号 `'file_desc_xxx'@'%'`，并以不指定默认库的方式连接，确保该账号不因默认库而获得额外权限。
 
 ## COPY 导出
 
@@ -89,8 +97,8 @@ python3 unittest/sql/file_sql_official_case.py \
   --socket /home/tom/oceanbase2026-filesql-test-instance/run/sql.sock
 ```
 
-集成脚本覆盖查询导出、表导出、表头、NULL 文本、禁止覆盖、非法选项与关闭功能开关时的报错；`file_sql_official_case.py` 复现官方 `tools/deploy/mysql_test/test_suite/file_sql` 用例的语句与期望输出。Parquet 仍未实现，默认完整验收会失败；开发期间显式传 `--allow-incomplete` 才允许跳过，并输出 PARTIAL，不宣称整题通过。
+集成脚本覆盖查询导出、表导出、表头、NULL 文本、禁止覆盖、非法选项与关闭功能开关时的报错；`file_sql_official_case.py` 复现官方 `tools/deploy/mysql_test/test_suite/file_sql` 用例的语句与期望输出，CSV / JSONL / DESCRIBE / glob / COPY / Parquet 段逐条比对通过。
 
-2026-10-27 复核 MiniMax 提交 `185724e`：新增的特殊表头测试先在原程序中失败，修复后完整构建、63 项扫描回归及原生 SQL 联调七组均通过。新增边界包括含逗号、引号、中文和换行的表头（Python csv 与原生 read_csv 双重读回）、空结果表头、NULL/空字符串/字面 NULL 的区分、自定义分隔符及转义、拒绝覆盖且原文件不变、运行时 JSON 错误后删除半成品、路径越界及空 secure_file_priv 拒绝。COPY 现在也复用 session_policy，解析阶段检查 enable_file_sql、FILE 权限和非空安全目录。
+2026-10-27 复核 MiniMax 提交 `185724e`：新增的特殊表头测试先在原程序中失败，修复后完整构建、扫描回归及原生 SQL 联调七组均通过。新增边界包括含逗号、引号、中文和换行的表头（Python csv 与原生 read_csv 双重读回）、空结果表头、NULL/空字符串/字面 NULL 的区分、自定义分隔符及转义、拒绝覆盖且原文件不变、运行时 JSON 错误后删除半成品、路径越界及空 secure_file_priv 拒绝。COPY 现在也复用 session_policy，解析阶段检查 enable_file_sql、FILE 权限和非空安全目录。
 
 文件创建成功后立即登记清理状态，避免表头或缓冲初始化失败时漏清理；关闭/刷新报错会触发清理并释放描述符，清理结果不再覆盖原有错误。关闭/刷新故障分支经代码检查，尚未做系统调用故障注入，不把运行时 JSON 错误测试当作该分支的故障注入证据。
