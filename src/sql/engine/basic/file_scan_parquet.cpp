@@ -1267,7 +1267,7 @@ Status ParquetReader::Impl::decode_page(size_t index, const PageHeader &header,
     }
     if (column.max_definition_level > 0) {
       int bit_width = 0;
-      while ((1 << bit_width) <= column.max_definition_level) { ++bit_width; }
+      while ((1u << bit_width) <= static_cast<uint32_t>(column.max_definition_level)) { ++bit_width; }
       if (!decode_rle_hybrid(page + repetition_bytes, definition_bytes, bit_width, num_values, definition_levels)) {
         return fail(Status::INVALID, "The Parquet definition levels are malformed");
       }
@@ -1318,9 +1318,10 @@ Status ParquetReader::Impl::decode_page(size_t index, const PageHeader &header,
         return fail(Status::INVALID, "The Parquet definition levels exceed the page");
       }
       int bit_width = 0;
-      while ((1 << bit_width) <= column.max_definition_level) { ++bit_width; }
+      while ((1u << bit_width) <= static_cast<uint32_t>(column.max_definition_level)) { ++bit_width; }
       if (!decode_rle_hybrid(plain.data() + position, length, bit_width, num_values,
                              definition_levels)) {
+        return fail(Status::INVALID, "The Parquet definition levels are malformed");
       }
       position += length;
     }

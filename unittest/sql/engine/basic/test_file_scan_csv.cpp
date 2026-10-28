@@ -22,7 +22,7 @@ private:
   char record_[5] = "1,x\n";
 };
 
-TEST(FileScanCsv, scans_non_seekable_input_without_retaining_old_records)
+TEST(FileSqlLocalCsv, scans_non_seekable_input_without_retaining_old_records)
 {
   GeneratedCsvBuffer buffer(100000);
   std::istream input(&buffer);
@@ -37,7 +37,7 @@ TEST(FileScanCsv, scans_non_seekable_input_without_retaining_old_records)
   EXPECT_EQ(Status::END, reader.next(row));
 }
 
-TEST(FileScanCsv, rejects_invalid_utf8_and_preserves_four_byte_characters)
+TEST(FileSqlLocalCsv, rejects_invalid_utf8_and_preserves_four_byte_characters)
 {
   for (const char *data : {"\xc0\x80", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\xe4\xb8", "\x80"}) {
     std::istringstream input(data);
@@ -53,7 +53,7 @@ TEST(FileScanCsv, rejects_invalid_utf8_and_preserves_four_byte_characters)
   EXPECT_EQ("\xf0\x9f\x98\x80", row[0].text);
 }
 
-TEST(FileScanCsv, bom_quotes_multiline_and_crlf)
+TEST(FileSqlLocalCsv, bom_quotes_multiline_and_crlf)
 {
   std::istringstream input("\xef\xbb\xbf\"名,称\",note,empty\r\n"
       "\"数据库\",\"line1\r\nline2 \"\"quoted\"\"\",\"\"\r\n");
@@ -71,7 +71,7 @@ TEST(FileScanCsv, bom_quotes_multiline_and_crlf)
   EXPECT_EQ(Status::END, reader.next(row));
 }
 
-TEST(FileScanCsv, null_is_distinct_from_quoted_text_and_trailing_field)
+TEST(FileSqlLocalCsv, null_is_distinct_from_quoted_text_and_trailing_field)
 {
   std::istringstream input("NULL,\"NULL\",,\"\",\nlast,");
   CsvOptions options;
@@ -91,7 +91,7 @@ TEST(FileScanCsv, null_is_distinct_from_quoted_text_and_trailing_field)
   EXPECT_EQ(Status::END, reader.next(row));
 }
 
-TEST(FileScanCsv, configurable_delimiter_quote_and_escape)
+TEST(FileSqlLocalCsv, configurable_delimiter_quote_and_escape)
 {
   std::istringstream input("'a;b';'it\\'s';'a\\\\b'\n");
   CsvOptions options;
@@ -107,7 +107,7 @@ TEST(FileScanCsv, configurable_delimiter_quote_and_escape)
   EXPECT_EQ("a\\b", row[2].text);
 }
 
-TEST(FileScanCsv, invalid_records_stop_with_location)
+TEST(FileSqlLocalCsv, invalid_records_stop_with_location)
 {
   for (const std::string data : {"good,row\n\"unclosed", "good,row\na\"b,c",
       "good,row\n\"x\"junk,y", "good,row\nbare\rnext"}) {
@@ -123,7 +123,7 @@ TEST(FileScanCsv, invalid_records_stop_with_location)
   }
 }
 
-TEST(FileScanCsv, limits_include_delimiters_quotes_and_newlines)
+TEST(FileSqlLocalCsv, limits_include_delimiters_quotes_and_newlines)
 {
   CsvOptions options;
   options.max_record_bytes = 5;
@@ -137,7 +137,7 @@ TEST(FileScanCsv, limits_include_delimiters_quotes_and_newlines)
   EXPECT_EQ(Status::LIMIT, wide.next(row));
 }
 
-TEST(FileScanCsv, empty_short_and_non_bom_utf8_inputs)
+TEST(FileSqlLocalCsv, empty_short_and_non_bom_utf8_inputs)
 {
   for (const std::string data : {"", "a", "ab", "abc", "\xef\xbc\xa1"}) {
     std::istringstream input(data);
@@ -154,7 +154,7 @@ TEST(FileScanCsv, empty_short_and_non_bom_utf8_inputs)
   }
 }
 
-TEST(FileScanCsv, input_io_failure_and_nul_are_not_eof)
+TEST(FileSqlLocalCsv, input_io_failure_and_nul_are_not_eof)
 {
   std::istringstream failed("data");
   failed.setstate(std::ios::badbit);
@@ -166,7 +166,7 @@ TEST(FileScanCsv, input_io_failure_and_nul_are_not_eof)
   EXPECT_EQ(Status::INVALID, nul.next(row));
 }
 
-TEST(FileScanSchema, exact_numeric_boundaries)
+TEST(FileSqlLocalSchema, exact_numeric_boundaries)
 {
   for (const char *text : {"0", "+42", "-9223372036854775808", "9223372036854775807"}) {
     EXPECT_EQ(Type::BIGINT, infer_type(Field{text, false})) << text;
@@ -180,7 +180,7 @@ TEST(FileScanSchema, exact_numeric_boundaries)
   }
 }
 
-TEST(FileScanSchema, dates_require_real_calendar_and_time_values)
+TEST(FileSqlLocalSchema, dates_require_real_calendar_and_time_values)
 {
   EXPECT_EQ(Type::DATE, infer_type(Field{"2024-02-29", false}));
   EXPECT_EQ(Type::DATE, infer_type(Field{"2000-02-29", false}));
@@ -197,7 +197,7 @@ TEST(FileScanSchema, dates_require_real_calendar_and_time_values)
   }
 }
 
-TEST(FileScanSchema, widening_is_independent_of_record_order)
+TEST(FileSqlLocalSchema, widening_is_independent_of_record_order)
 {
   const Type types[] = {Type::NULL_VALUE, Type::BIGINT, Type::DOUBLE, Type::BOOLEAN,
       Type::VARCHAR, Type::DATE, Type::DATETIME};
@@ -214,14 +214,14 @@ TEST(FileScanSchema, widening_is_independent_of_record_order)
   EXPECT_EQ(Type::BOOLEAN, infer_type(Field{"TrUe", false}));
 }
 
-TEST(FileScanSchema, duplicate_headers_do_not_shadow_literal_suffixes)
+TEST(FileSqlLocalSchema, duplicate_headers_do_not_shadow_literal_suffixes)
 {
   const std::vector<Field> header = {{"id"}, {"ID"}, {"id__2"}, {""}, {"column4"}};
   EXPECT_EQ((std::vector<std::string>{"id", "ID__3", "id__2", "column4__2", "column4"}),
       column_names(header));
 }
 
-TEST(FileScanSchema, inference_reads_late_rows_and_widens_all_columns)
+TEST(FileSqlLocalSchema, inference_reads_late_rows_and_widens_all_columns)
 {
   std::istringstream input("n,day,empty,flag\n1,2024-02-29,,true\n"
       "2.5,2024-03-01 01:02:03,,FALSE\n");
@@ -234,7 +234,7 @@ TEST(FileScanSchema, inference_reads_late_rows_and_widens_all_columns)
   EXPECT_EQ((std::vector<bool>{false, false, true, false}), schema.nullable);
 }
 
-TEST(FileScanSchema, nullability_tracks_late_nulls_and_quoted_empty_values)
+TEST(FileSqlLocalSchema, nullability_tracks_late_nulls_and_quoted_empty_values)
 {
   std::istringstream input("id,text,late\n1,\"\",3\n2,\"\",\n");
   CsvSchema schema;
@@ -243,7 +243,7 @@ TEST(FileScanSchema, nullability_tracks_late_nulls_and_quoted_empty_values)
   EXPECT_EQ((std::vector<bool>{false, false, true}), schema.nullable);
 }
 
-TEST(FileScanSchema, headerless_inference_includes_first_record)
+TEST(FileSqlLocalSchema, headerless_inference_includes_first_record)
 {
   std::istringstream input("text,2\n1,3\n");
   CsvOptions options;
@@ -256,7 +256,7 @@ TEST(FileScanSchema, headerless_inference_includes_first_record)
   EXPECT_EQ((std::vector<std::string>{"column1", "column2"}), schema.names);
 }
 
-TEST(FileScanSchema, width_errors_do_not_publish_partial_schema)
+TEST(FileSqlLocalSchema, width_errors_do_not_publish_partial_schema)
 {
   std::istringstream input("a,b\n1,2\n3\n");
   CsvSchema schema;
@@ -268,7 +268,7 @@ TEST(FileScanSchema, width_errors_do_not_publish_partial_schema)
   EXPECT_NE(std::string::npos, diagnostic.message.find("width"));
 }
 
-TEST(FileScanSchema, empty_input_differs_from_header_only_input)
+TEST(FileSqlLocalSchema, empty_input_differs_from_header_only_input)
 {
   std::istringstream empty;
   CsvSchema schema;

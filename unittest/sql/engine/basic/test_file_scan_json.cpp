@@ -5,7 +5,7 @@
 
 using namespace oceanbase::sql::file_scan;
 
-TEST(FileScanJson, PreservesJsonScalarTypesAndNumericLexemes)
+TEST(FileSqlLocalJson, PreservesJsonScalarTypesAndNumericLexemes)
 {
   std::istringstream input(R"({"i":9223372036854775807,"overflow":9223372036854775808,"n":1.25e2,"b":true,"s":"123","empty":"","null":null,"date":"2024-02-29","dt":"2024-02-29 23:59:59"})");
   JsonReader reader(input, {});
@@ -27,7 +27,7 @@ TEST(FileScanJson, PreservesJsonScalarTypesAndNumericLexemes)
   EXPECT_EQ(Status::END, reader.next(row));
 }
 
-TEST(FileScanJson, UnionAndMissingFieldsAreInferredAcrossTheEntireFile)
+TEST(FileSqlLocalJson, UnionAndMissingFieldsAreInferredAcrossTheEntireFile)
 {
   std::istringstream input("{\"id\":1,\"score\":null}\n{}\n{\"id\":2,\"score\":1.5,\"late\":true}\n");
   CsvSchema schema;
@@ -49,7 +49,7 @@ TEST(FileScanJson, UnionAndMissingFieldsAreInferredAcrossTheEntireFile)
   EXPECT_TRUE(row[2].is_null);
 }
 
-TEST(FileScanJson, NullabilityIncludesLateFieldsExplicitNullAndAbsentKeys)
+TEST(FileSqlLocalJson, NullabilityIncludesLateFieldsExplicitNullAndAbsentKeys)
 {
   std::istringstream input("{\"id\":1,\"nullable\":true,\"missing\":1}\n"
       "{\"id\":2,\"nullable\":null,\"late\":2}");
@@ -59,7 +59,7 @@ TEST(FileScanJson, NullabilityIncludesLateFieldsExplicitNullAndAbsentKeys)
   EXPECT_EQ((std::vector<bool>{false, true, true, true}), schema.nullable);
 }
 
-TEST(FileScanJson, WideningAndAllNullFieldsDoNotDependOnRowOrder)
+TEST(FileSqlLocalJson, WideningAndAllNullFieldsDoNotDependOnRowOrder)
 {
   for (const std::string text : {
       "{\"a\":1,\"b\":null}\n{\"a\":1.5}\n{\"a\":\"str\"}",
@@ -72,7 +72,7 @@ TEST(FileScanJson, WideningAndAllNullFieldsDoNotDependOnRowOrder)
   }
 }
 
-TEST(FileScanJson, HandlesBomBlankLinesCrlfUnicodeAndEscapedNewlines)
+TEST(FileSqlLocalJson, HandlesBomBlankLinesCrlfUnicodeAndEscapedNewlines)
 {
   std::istringstream input("\xef\xbb\xbf \r\n\n{\"name\":\"\\u4f60\\ud83d\\ude00\\n\"}\r\n");
   JsonReader reader(input, {});
@@ -85,7 +85,7 @@ TEST(FileScanJson, HandlesBomBlankLinesCrlfUnicodeAndEscapedNewlines)
   EXPECT_EQ(Status::END, reader.next(row));
 }
 
-TEST(FileScanJson, RejectsNestedValuesScalarRootsDuplicateAndAmbiguousKeys)
+TEST(FileSqlLocalJson, RejectsNestedValuesScalarRootsDuplicateAndAmbiguousKeys)
 {
   for (const auto *text : {"[]", "1", "null", "{\"a\":[]}", "{\"a\":{}}",
       "{\"a\":1,\"a\":2}", "{\"a\":1,\"A\":2}", "{\"\":1}",
@@ -98,7 +98,7 @@ TEST(FileScanJson, RejectsNestedValuesScalarRootsDuplicateAndAmbiguousKeys)
   }
 }
 
-TEST(FileScanJson, RejectsInvalidUtf8AndUnpairedSurrogates)
+TEST(FileSqlLocalJson, RejectsInvalidUtf8AndUnpairedSurrogates)
 {
   for (const std::string &text : {std::string("{\"a\":\"\xc0\xaf\"}"), std::string("{\"a\":\"\\ud800\"}")}) {
     std::istringstream input(text);
@@ -108,7 +108,7 @@ TEST(FileScanJson, RejectsInvalidUtf8AndUnpairedSurrogates)
   }
 }
 
-TEST(FileScanJson, SchemaLimitsApplyToUnionNotJustIndividualObjects)
+TEST(FileSqlLocalJson, SchemaLimitsApplyToUnionNotJustIndividualObjects)
 {
   std::istringstream input("{\"a\":1}\n{\"b\":2}\n{\"c\":3}");
   JsonOptions options;
@@ -121,7 +121,7 @@ TEST(FileScanJson, SchemaLimitsApplyToUnionNotJustIndividualObjects)
   EXPECT_EQ(3U, diagnostic.line);
 }
 
-TEST(FileScanJson, BadLateRecordDoesNotPublishPartialSchema)
+TEST(FileSqlLocalJson, BadLateRecordDoesNotPublishPartialSchema)
 {
   std::istringstream input("{\"a\":1}\n\n{\"a\":}");
   CsvSchema schema;
@@ -133,7 +133,7 @@ TEST(FileScanJson, BadLateRecordDoesNotPublishPartialSchema)
   EXPECT_EQ(2U, diagnostic.record);
 }
 
-TEST(FileScanJson, BoundsRecordSizeAndReportsIoErrors)
+TEST(FileSqlLocalJson, BoundsRecordSizeAndReportsIoErrors)
 {
   std::istringstream input("{\"a\":1}");
   JsonOptions options;
@@ -150,7 +150,7 @@ TEST(FileScanJson, BoundsRecordSizeAndReportsIoErrors)
   EXPECT_EQ(Status::INVALID, oversized.next(row));
 }
 
-TEST(FileScanJson, EmptyInputAndObjectsDoNotCreateZeroColumnTables)
+TEST(FileSqlLocalJson, EmptyInputAndObjectsDoNotCreateZeroColumnTables)
 {
   for (const auto *text : {"", "\n  \r\n", "{}\n{}"}) {
     std::istringstream input(text);

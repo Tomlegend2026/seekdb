@@ -20,7 +20,7 @@ using namespace oceanbase::common;
 
 namespace
 {
-class AIFunctionRegression : public ::testing::Test
+class AiLocalRegression : public ::testing::Test
 {
 protected:
   ObJsonObject *parse(const char *json)
@@ -46,7 +46,7 @@ public:
   std::vector<void *> freed;
 };
 
-TEST_F(AIFunctionRegression, serialized_json_retains_its_allocation)
+TEST_F(AiLocalRegression, serialized_json_retains_its_allocation)
 {
   ObJsonObject *object = parse(R"({"text":"persistent result"})");
   ASSERT_NE(nullptr, object);
@@ -62,7 +62,7 @@ TEST_F(AIFunctionRegression, serialized_json_retains_its_allocation)
   tracked.free(output.ptr());
 }
 
-TEST_F(AIFunctionRegression, repeated_placeholder_uses_full_output_size)
+TEST_F(AiLocalRegression, repeated_placeholder_uses_full_output_size)
 {
   const std::string argument(4096, 'x');
   ObJsonArray args(&allocator_);
@@ -76,7 +76,7 @@ TEST_F(AIFunctionRegression, repeated_placeholder_uses_full_output_size)
   EXPECT_EQ(argument + argument + argument, std::string(output.ptr(), output.length()));
 }
 
-TEST_F(AIFunctionRegression, nested_prompt_is_rendered)
+TEST_F(AiLocalRegression, nested_prompt_is_rendered)
 {
   ObJsonObject *prompt = parse(R"({"template":"<{0}>","args":[{"template":"hello {0}","args":["world"]}]})");
   ASSERT_NE(nullptr, prompt);
@@ -85,7 +85,7 @@ TEST_F(AIFunctionRegression, nested_prompt_is_rendered)
   EXPECT_EQ("<hello world>", std::string(output.ptr(), output.length()));
 }
 
-TEST_F(AIFunctionRegression, json_objects_and_arrays_are_serialized)
+TEST_F(AiLocalRegression, json_objects_and_arrays_are_serialized)
 {
   ObJsonObject *prompt = parse(R"({"template":"{0}|{1}","args":[{"name":"alice"},[2,true]]})");
   ASSERT_NE(nullptr, prompt);
@@ -98,7 +98,7 @@ TEST_F(AIFunctionRegression, json_objects_and_arrays_are_serialized)
   EXPECT_NE(std::string::npos, actual.find("|["));
 }
 
-TEST_F(AIFunctionRegression, invalid_placeholder_indices_do_not_overflow)
+TEST_F(AiLocalRegression, invalid_placeholder_indices_do_not_overflow)
 {
   for (const char *text : {"{1}", "{9223372036854775808}", "{18446744073709551616}"}) {
     ObJsonArray args(&allocator_);
@@ -112,7 +112,7 @@ TEST_F(AIFunctionRegression, invalid_placeholder_indices_do_not_overflow)
   }
 }
 
-TEST_F(AIFunctionRegression, malformed_prompt_is_rejected_before_casting)
+TEST_F(AiLocalRegression, malformed_prompt_is_rejected_before_casting)
 {
   for (const char *json : {R"({"template":12,"args":[]})", R"({"template":"{0}","args":{}})"}) {
     ObJsonObject *prompt = parse(json);
@@ -122,7 +122,7 @@ TEST_F(AIFunctionRegression, malformed_prompt_is_rejected_before_casting)
   }
 }
 
-TEST_F(AIFunctionRegression, openai_embedding_restores_input_order)
+TEST_F(AiLocalRegression, openai_embedding_restores_input_order)
 {
   ObJsonObject *response = parse(R"({"data":[{"index":1,"embedding":[3,4]},{"index":0,"embedding":[1,2]}]})");
   ASSERT_NE(nullptr, response);
@@ -136,7 +136,7 @@ TEST_F(AIFunctionRegression, openai_embedding_restores_input_order)
   EXPECT_EQ(1, first->get_value(0)->get_int());
 }
 
-TEST_F(AIFunctionRegression, malformed_embeddings_are_rejected)
+TEST_F(AiLocalRegression, malformed_embeddings_are_rejected)
 {
   ObOpenAIUtils::ObOpenAIEmbed provider;
   for (const char *json : {
@@ -154,7 +154,7 @@ TEST_F(AIFunctionRegression, malformed_embeddings_are_rejected)
   }
 }
 
-TEST_F(AIFunctionRegression, completion_rejects_empty_or_non_string_content)
+TEST_F(AiLocalRegression, completion_rejects_empty_or_non_string_content)
 {
   ObOpenAIUtils::ObOpenAIComplete provider;
   for (const char *json : {
@@ -168,7 +168,7 @@ TEST_F(AIFunctionRegression, completion_rejects_empty_or_non_string_content)
   }
 }
 
-TEST_F(AIFunctionRegression, dashscope_embedding_rejects_malformed_shapes)
+TEST_F(AiLocalRegression, dashscope_embedding_rejects_malformed_shapes)
 {
   ObDashscopeUtils::ObDashscopeEmbed provider;
   for (const char *json : {
@@ -185,7 +185,7 @@ TEST_F(AIFunctionRegression, dashscope_embedding_rejects_malformed_shapes)
   }
 }
 
-TEST_F(AIFunctionRegression, dashscope_completion_rejects_malformed_shapes)
+TEST_F(AiLocalRegression, dashscope_completion_rejects_malformed_shapes)
 {
   ObDashscopeUtils::ObDashscopeComplete provider;
   for (const char *json : {
@@ -201,7 +201,7 @@ TEST_F(AIFunctionRegression, dashscope_completion_rejects_malformed_shapes)
   }
 }
 
-TEST_F(AIFunctionRegression, ollama_embedding_rejects_invalid_values)
+TEST_F(AiLocalRegression, ollama_embedding_rejects_invalid_values)
 {
   ObOllamaUtils::ObOllamaEmbed provider;
   for (const char *json : {
@@ -216,7 +216,7 @@ TEST_F(AIFunctionRegression, ollama_embedding_rejects_invalid_values)
   }
 }
 
-TEST_F(AIFunctionRegression, prompt_nesting_has_a_depth_limit)
+TEST_F(AiLocalRegression, prompt_nesting_has_a_depth_limit)
 {
   std::string json = R"({"template":"{0}","args":["leaf"]})";
   for (int i = 0; i < 33; ++i) {
@@ -229,7 +229,7 @@ TEST_F(AIFunctionRegression, prompt_nesting_has_a_depth_limit)
       ObAIFuncPromptObjectUtils::replace_all_str_args_in_template(allocator_, prompt, output));
 }
 
-TEST_F(AIFunctionRegression, ollama_is_non_streaming_and_case_insensitive)
+TEST_F(AiLocalRegression, ollama_is_non_streaming_and_case_insensitive)
 {
   ObAIFuncIComplete *provider = nullptr;
   ObString name("oLlAmA");

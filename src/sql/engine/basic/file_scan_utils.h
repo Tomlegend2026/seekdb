@@ -92,3 +92,5 @@ Status infer_csv_schema(std::istream &input, const CsvOptions &options,
 // a later literal name (e.g. id,id,id__2).
 std::vector<std::string> column_names(const std::vector<Field> &header);
 } // namespace oceanbase::sql::file_scan
+
+#include "file_scan_parquet.h"

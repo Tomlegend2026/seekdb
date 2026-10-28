@@ -26,7 +26,7 @@ int open_descriptor_count()
 }
 } // namespace
 
-class FileScanGlobTest : public ::testing::Test
+class FileSqlLocalGlob : public ::testing::Test
 {
 protected:
   void SetUp() override
@@ -70,7 +70,7 @@ protected:
 
 // A disabled, empty, relative or '..'-containing secure_root fails closed and
 // never publishes partial output. "/" is a valid root (covered below).
-TEST_F(FileScanGlobTest, DisabledPolicyAndInvalidRootFailClosed)
+TEST_F(FileSqlLocalGlob, DisabledPolicyAndInvalidRootFailClosed)
 {
   std::vector<std::string> files{"sentinel"};
   Diagnostic diagnostic;
@@ -105,7 +105,7 @@ TEST_F(FileScanGlobTest, DisabledPolicyAndInvalidRootFailClosed)
 // component-wise like the secure file layer, but '..', NUL, an empty pattern
 // and sibling-prefix paths are refused before anything outside secure_root is
 // looked at, and every refusal leaves `files` untouched.
-TEST_F(FileScanGlobTest, RejectsTraversalNulAndSiblingPrefixes)
+TEST_F(FileSqlLocalGlob, RejectsTraversalNulAndSiblingPrefixes)
 {
   std::vector<std::string> files{"keep"};
   const std::string root = (base / "allowed").string();
@@ -146,7 +146,7 @@ TEST_F(FileScanGlobTest, RejectsTraversalNulAndSiblingPrefixes)
   EXPECT_TRUE(files.empty());
 }
 
-TEST_F(FileScanGlobTest, NormalizesRedundantSlashesAndDots)
+TEST_F(FileSqlLocalGlob, NormalizesRedundantSlashesAndDots)
 {
   std::vector<std::string> files;
   Diagnostic diagnostic;
@@ -165,7 +165,7 @@ TEST_F(FileScanGlobTest, NormalizesRedundantSlashesAndDots)
   EXPECT_FALSE(diagnostic.message.empty());
 }
 
-TEST_F(FileScanGlobTest, HiddenFilesNeedAnExplicitDot)
+TEST_F(FileSqlLocalGlob, HiddenFilesNeedAnExplicitDot)
 {
   std::vector<std::string> files;
   Diagnostic diagnostic;
@@ -178,7 +178,7 @@ TEST_F(FileScanGlobTest, HiddenFilesNeedAnExplicitDot)
 }
 
 // A single '*' never crosses '/', so the listing stays at the root.
-TEST_F(FileScanGlobTest, LiteralAndWildcardSelectionIsSorted)
+TEST_F(FileSqlLocalGlob, LiteralAndWildcardSelectionIsSorted)
 {
   std::vector<std::string> files;
   Diagnostic diagnostic;
@@ -208,7 +208,7 @@ TEST_F(FileScanGlobTest, LiteralAndWildcardSelectionIsSorted)
 }
 
 // Wildcard directory components expand to every matching real directory.
-TEST_F(FileScanGlobTest, WildcardParentComponentsAreSupported)
+TEST_F(FileSqlLocalGlob, WildcardParentComponentsAreSupported)
 {
   fs::create_directories(base / "allowed/one/inner");
   fs::create_directories(base / "allowed/two");
@@ -256,7 +256,7 @@ TEST_F(FileScanGlobTest, WildcardParentComponentsAreSupported)
   EXPECT_EQ(expect({"sub/d.txt"}), files);
 }
 
-TEST_F(FileScanGlobTest, RelativeAndAbsolutePatternsAreEquivalent)
+TEST_F(FileSqlLocalGlob, RelativeAndAbsolutePatternsAreEquivalent)
 {
   std::vector<std::string> relative;
   std::vector<std::string> absolute;
@@ -278,7 +278,7 @@ TEST_F(FileScanGlobTest, RelativeAndAbsolutePatternsAreEquivalent)
   EXPECT_EQ(Status::INVALID, discover_files(policy, "/sub/*.txt", relative, diagnostic));
 }
 
-TEST_F(FileScanGlobTest, AcceptsAbsolutePatternsOnlyInsideRoot)
+TEST_F(FileSqlLocalGlob, AcceptsAbsolutePatternsOnlyInsideRoot)
 {
   std::vector<std::string> files;
   Diagnostic diagnostic;
@@ -298,7 +298,7 @@ TEST_F(FileScanGlobTest, AcceptsAbsolutePatternsOnlyInsideRoot)
   EXPECT_EQ(expect({"a.txt", "c.txt"}), files);
 }
 
-TEST_F(FileScanGlobTest, SkipsSymlinksDirectoriesAndSpecialFiles)
+TEST_F(FileSqlLocalGlob, SkipsSymlinksDirectoriesAndSpecialFiles)
 {
   fs::create_symlink(base / "allowed/a.txt", base / "allowed/link.txt");
   fs::create_directory_symlink(base / "allowed/sub", base / "allowed/linkdir");
@@ -329,7 +329,7 @@ TEST_F(FileScanGlobTest, SkipsSymlinksDirectoriesAndSpecialFiles)
   EXPECT_EQ(expect({"a.txt", "c.txt"}), files);
 }
 
-TEST_F(FileScanGlobTest, RejectsSymlinkedRootAndRootParent)
+TEST_F(FileSqlLocalGlob, RejectsSymlinkedRootAndRootParent)
 {
   fs::create_directory_symlink(base / "allowed", base / "rootlink");
   std::vector<std::string> files{"keep"};
@@ -346,7 +346,7 @@ TEST_F(FileScanGlobTest, RejectsSymlinkedRootAndRootParent)
 
 // The default fixture has a.txt and c.txt at the root; ".hidden.txt" is
 // excluded because '*' needs an explicit leading '.'.
-TEST_F(FileScanGlobTest, EnforcesFileCountLimit)
+TEST_F(FileSqlLocalGlob, EnforcesFileCountLimit)
 {
   write("allowed/d.txt", "d\n");
   std::vector<std::string> files{"keep"};
@@ -371,7 +371,7 @@ TEST_F(FileScanGlobTest, EnforcesFileCountLimit)
   EXPECT_EQ(expect({"a_dir/x.txt", "b_dir/y.txt", "sub/d.txt"}), files);
 }
 
-TEST_F(FileScanGlobTest, MissingOrNonDirectoryParentsFailWithoutOutput)
+TEST_F(FileSqlLocalGlob, MissingOrNonDirectoryParentsFailWithoutOutput)
 {
   std::vector<std::string> files{"keep"};
   Diagnostic diagnostic;
@@ -391,7 +391,7 @@ TEST_F(FileScanGlobTest, MissingOrNonDirectoryParentsFailWithoutOutput)
   EXPECT_EQ(std::vector<std::string>{"keep"}, files);
 }
 
-TEST_F(FileScanGlobTest, MissingRootFailsWithoutOutput)
+TEST_F(FileSqlLocalGlob, MissingRootFailsWithoutOutput)
 {
   write("allowed/a2.txt", "a2\n");
   std::vector<std::string> files{"keep"};
@@ -403,7 +403,7 @@ TEST_F(FileScanGlobTest, MissingRootFailsWithoutOutput)
   EXPECT_EQ(std::vector<std::string>{"keep"}, files);
 }
 
-TEST_F(FileScanGlobTest, NoMatchSucceedsWithEmptyResult)
+TEST_F(FileSqlLocalGlob, NoMatchSucceedsWithEmptyResult)
 {
   std::vector<std::string> files{"keep"};
   Diagnostic diagnostic;
@@ -417,7 +417,7 @@ TEST_F(FileScanGlobTest, NoMatchSucceedsWithEmptyResult)
 
 // fnmatch(3) with FNM_PERIOD: '[...]' is a character class, '?' is any single
 // character, and '\' escapes the next character.
-TEST_F(FileScanGlobTest, FnmatchEscapesHiddenNamesAndDirectories)
+TEST_F(FileSqlLocalGlob, FnmatchEscapesHiddenNamesAndDirectories)
 {
   write("allowed/a[b].txt", "x\n");
   write("allowed/a\\b.txt", "x\n");
@@ -455,7 +455,7 @@ TEST_F(FileScanGlobTest, FnmatchEscapesHiddenNamesAndDirectories)
   EXPECT_EQ(Status::INVALID, discover_files(policy, "a\\", files, diagnostic));
 }
 
-TEST_F(FileScanGlobTest, NestedParentDirectoriesAreOpenedWithoutSymlinks)
+TEST_F(FileSqlLocalGlob, NestedParentDirectoriesAreOpenedWithoutSymlinks)
 {
   fs::create_directories(base / "allowed/sub/deep/deeper");
   write("allowed/sub/deep/deeper/x.txt", "x\n");
@@ -483,7 +483,7 @@ TEST_F(FileScanGlobTest, NestedParentDirectoriesAreOpenedWithoutSymlinks)
 }
 
 // "/" is an absolute security root (consistent with the secure file layer).
-TEST_F(FileScanGlobTest, SlashSecureRootIsValid)
+TEST_F(FileSqlLocalGlob, SlashSecureRootIsValid)
 {
   fs::create_directories(base / "rootfiles");
   write("rootfiles/r.txt", "r\n");
@@ -507,7 +507,7 @@ TEST_F(FileScanGlobTest, SlashSecureRootIsValid)
 
 // max_files counts regular files only: directories, symlinks and FIFOs that
 // match '*.txt' are skipped, so the limit is never consumed by them.
-TEST_F(FileScanGlobTest, CountsOnlyRegularFilesAgainstLimit)
+TEST_F(FileSqlLocalGlob, CountsOnlyRegularFilesAgainstLimit)
 {
   fs::create_directories(base / "allowed/limit");
   write("allowed/limit/a.txt", "a\n");
@@ -528,7 +528,7 @@ TEST_F(FileScanGlobTest, CountsOnlyRegularFilesAgainstLimit)
   EXPECT_EQ(expect({"limit/a.txt", "limit/b.txt"}), files);
 }
 
-TEST_F(FileScanGlobTest, ErrorsDoNotLeakDescriptors)
+TEST_F(FileSqlLocalGlob, ErrorsDoNotLeakDescriptors)
 {
   fs::create_directories(base / "allowed/sub/deep");
   write("allowed/sub/deep/x.txt", "x\n");

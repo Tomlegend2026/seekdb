@@ -71,7 +71,7 @@ const char *BIT_PACKED_PARQUET =
     "UEFSMRUAFSwVLCwVDhUAFQYVBgAAAgAAAANVAQAAAAMAAAAFAAAABwAAABUCGSxIBHJvb3QVAgAV"
     "AiUCGAJpZAAWAhkcGRwmCBwVAhklBgAZGAJpZBUAFg4WThZOJggAABZOFg4AADwAAABQQVIx";
 
-class ParquetReaderTest : public ::testing::Test
+class FileSqlLocalParquet : public ::testing::Test
 {
 protected:
   void SetUp() override
@@ -121,7 +121,7 @@ protected:
 };
 } // namespace
 
-TEST_F(ParquetReaderTest, ReadsTheOfficialFixture)
+TEST_F(FileSqlLocalParquet, ReadsTheOfficialFixture)
 {
   std::vector<std::vector<Field>> rows;
   CsvSchema schema;
@@ -138,7 +138,7 @@ TEST_F(ParquetReaderTest, ReadsTheOfficialFixture)
   }
 }
 
-TEST_F(ParquetReaderTest, ReadsDictionaryEncodedPages)
+TEST_F(FileSqlLocalParquet, ReadsDictionaryEncodedPages)
 {
   std::vector<std::vector<Field>> rows;
   CsvSchema schema;
@@ -151,7 +151,7 @@ TEST_F(ParquetReaderTest, ReadsDictionaryEncodedPages)
   EXPECT_EQ("1", rows[4][0].text);
 }
 
-TEST_F(ParquetReaderTest, ReadsSeveralRowGroups)
+TEST_F(FileSqlLocalParquet, ReadsSeveralRowGroups)
 {
   std::vector<std::vector<Field>> rows;
   CsvSchema schema;
@@ -172,7 +172,7 @@ TEST_F(ParquetReaderTest, ReadsSeveralRowGroups)
   EXPECT_EQ("c", rows[2][1].text);
 }
 
-TEST_F(ParquetReaderTest, ReadsBooleanDoubleAndDateColumns)
+TEST_F(FileSqlLocalParquet, ReadsBooleanDoubleAndDateColumns)
 {
   std::vector<std::vector<Field>> rows;
   CsvSchema schema;
@@ -191,7 +191,7 @@ TEST_F(ParquetReaderTest, ReadsBooleanDoubleAndDateColumns)
   EXPECT_TRUE(rows[2][2].is_null);
 }
 
-TEST_F(ParquetReaderTest, ReadsPaddedBitPackedDefinitionLevels)
+TEST_F(FileSqlLocalParquet, ReadsPaddedBitPackedDefinitionLevels)
 {
   std::vector<std::vector<Field>> rows;
   CsvSchema schema;
@@ -207,7 +207,7 @@ TEST_F(ParquetReaderTest, ReadsPaddedBitPackedDefinitionLevels)
   }
 }
 
-TEST_F(ParquetReaderTest, RejectsMalformedFiles)
+TEST_F(FileSqlLocalParquet, RejectsMalformedFiles)
 {
   write("empty.parquet", "");
   SecureFile file;
@@ -228,7 +228,7 @@ TEST_F(ParquetReaderTest, RejectsMalformedFiles)
   EXPECT_EQ(Status::INVALID, third.prepare(schema, diagnostic));
 }
 
-TEST_F(ParquetReaderTest, RewindsToTheFirstRow)
+TEST_F(FileSqlLocalParquet, RewindsToTheFirstRow)
 {
   write("simple.parquet", decode_base64(OFFICIAL_PARQUET));
   SecureFile file;

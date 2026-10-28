@@ -9,7 +9,7 @@
 using namespace oceanbase::sql::file_scan;
 namespace fs = std::filesystem;
 
-class SecureFileTest : public ::testing::Test
+class FileSqlLocalSecureFile : public ::testing::Test
 {
 protected:
   void SetUp() override
@@ -36,7 +36,7 @@ protected:
   FilePolicy policy;
 };
 
-TEST_F(SecureFileTest, DisabledAndMissingRootFailClosed)
+TEST_F(FileSqlLocalSecureFile, DisabledAndMissingRootFailClosed)
 {
   SecureFile file;
   FilePolicy defaults;
@@ -47,7 +47,7 @@ TEST_F(SecureFileTest, DisabledAndMissingRootFailClosed)
   EXPECT_EQ(Status::INVALID, file.open(defaults, "sub/data.csv"));
 }
 
-TEST_F(SecureFileTest, StreamsInfersAndRewindsTheSameDescriptor)
+TEST_F(FileSqlLocalSecureFile, StreamsInfersAndRewindsTheSameDescriptor)
 {
   SecureFile file;
   ASSERT_EQ(Status::OK, file.open(policy, "sub/data.csv"));
@@ -63,7 +63,7 @@ TEST_F(SecureFileTest, StreamsInfersAndRewindsTheSameDescriptor)
   EXPECT_EQ(Status::OK, file.open(policy, (base / "allowed/sub/data.csv").string()));
 }
 
-TEST_F(SecureFileTest, RejectsTraversalNulAndSiblingPrefix)
+TEST_F(FileSqlLocalSecureFile, RejectsTraversalNulAndSiblingPrefix)
 {
   SecureFile file;
   for (const auto &path : {"../allowed_other/outside.csv", "sub/../../allowed_other/outside.csv", ""}) {
@@ -74,7 +74,7 @@ TEST_F(SecureFileTest, RejectsTraversalNulAndSiblingPrefix)
   EXPECT_EQ(Status::INVALID, file.open(policy, policy.secure_root));
 }
 
-TEST_F(SecureFileTest, RejectsAllSymlinkComponentsIncludingRoot)
+TEST_F(FileSqlLocalSecureFile, RejectsAllSymlinkComponentsIncludingRoot)
 {
   fs::create_symlink(base / "allowed_other/outside.csv", base / "allowed/link.csv");
   fs::create_directory_symlink(base / "allowed_other", base / "allowed/linkdir");
@@ -86,7 +86,7 @@ TEST_F(SecureFileTest, RejectsAllSymlinkComponentsIncludingRoot)
   EXPECT_EQ(Status::IO_ERROR, file.open(policy, "sub/data.csv"));
 }
 
-TEST_F(SecureFileTest, RejectsDirectoriesFifosMissingFilesAndSizeLimit)
+TEST_F(FileSqlLocalSecureFile, RejectsDirectoriesFifosMissingFilesAndSizeLimit)
 {
   SecureFile file;
   ASSERT_EQ(0, ::mkfifo((base / "allowed/fifo").c_str(), 0600));
@@ -97,7 +97,7 @@ TEST_F(SecureFileTest, RejectsDirectoriesFifosMissingFilesAndSizeLimit)
   EXPECT_EQ(Status::LIMIT, file.open(policy, "sub/data.csv"));
 }
 
-TEST_F(SecureFileTest, DetectsAppendAndNeverSilentlyRewindsChangedFile)
+TEST_F(FileSqlLocalSecureFile, DetectsAppendAndNeverSilentlyRewindsChangedFile)
 {
   SecureFile file;
   ASSERT_EQ(Status::OK, file.open(policy, "sub/data.csv"));
@@ -106,7 +106,7 @@ TEST_F(SecureFileTest, DetectsAppendAndNeverSilentlyRewindsChangedFile)
   EXPECT_EQ(Status::IO_ERROR, file.rewind());
 }
 
-TEST_F(SecureFileTest, DetectsSameSizeRewriteReplacementAndDeletion)
+TEST_F(FileSqlLocalSecureFile, DetectsSameSizeRewriteReplacementAndDeletion)
 {
   SecureFile file;
   ASSERT_EQ(Status::OK, file.open(policy, "sub/data.csv"));
@@ -121,7 +121,7 @@ TEST_F(SecureFileTest, DetectsSameSizeRewriteReplacementAndDeletion)
   EXPECT_EQ(Status::IO_ERROR, file.validate());
 }
 
-TEST_F(SecureFileTest, DetectsAncestorReplacementAndSymlinkSwap)
+TEST_F(FileSqlLocalSecureFile, DetectsAncestorReplacementAndSymlinkSwap)
 {
   SecureFile file;
   ASSERT_EQ(Status::OK, file.open(policy, "sub/data.csv"));
@@ -130,7 +130,7 @@ TEST_F(SecureFileTest, DetectsAncestorReplacementAndSymlinkSwap)
   EXPECT_EQ(Status::IO_ERROR, file.validate());
 }
 
-TEST_F(SecureFileTest, StreamReportsChangeAsIoFailureInsteadOfEnd)
+TEST_F(FileSqlLocalSecureFile, StreamReportsChangeAsIoFailureInsteadOfEnd)
 {
   SecureFile file;
   ASSERT_EQ(Status::OK, file.open(policy, "sub/data.csv"));
@@ -141,7 +141,7 @@ TEST_F(SecureFileTest, StreamReportsChangeAsIoFailureInsteadOfEnd)
   EXPECT_TRUE(file.stream().bad());
 }
 
-TEST_F(SecureFileTest, RevalidatesBeforeReadingAnotherBuffer)
+TEST_F(FileSqlLocalSecureFile, RevalidatesBeforeReadingAnotherBuffer)
 {
   write("allowed/sub/data.csv", std::string(128 * 1024, 'x'));
   SecureFile file;
@@ -153,7 +153,7 @@ TEST_F(SecureFileTest, RevalidatesBeforeReadingAnotherBuffer)
   EXPECT_EQ(Status::IO_ERROR, file.validate());
 }
 
-TEST_F(SecureFileTest, CursorRescanPreservesFullSchemaAndSkipsHeader)
+TEST_F(FileSqlLocalSecureFile, CursorRescanPreservesFullSchemaAndSkipsHeader)
 {
   write("allowed/sub/data.csv", "id,value\n1,7\n2,3.5\n");
   QueryOptions options;
@@ -178,7 +178,7 @@ TEST_F(SecureFileTest, CursorRescanPreservesFullSchemaAndSkipsHeader)
   }
 }
 
-TEST_F(SecureFileTest, CursorJsonProjectsUnionAndMissingFieldsAcrossRescans)
+TEST_F(FileSqlLocalSecureFile, CursorJsonProjectsUnionAndMissingFieldsAcrossRescans)
 {
   write("allowed/sub/data.jsonl", "{\"id\":1}\n{\"id\":2,\"late\":true}\n");
   QueryOptions options;
@@ -198,7 +198,7 @@ TEST_F(SecureFileTest, CursorJsonProjectsUnionAndMissingFieldsAcrossRescans)
   }
 }
 
-TEST_F(SecureFileTest, CursorDetectsChangeBetweenInferenceAndFirstOutput)
+TEST_F(FileSqlLocalSecureFile, CursorDetectsChangeBetweenInferenceAndFirstOutput)
 {
   QueryOptions options;
   options.path = "sub/data.csv";
@@ -211,7 +211,7 @@ TEST_F(SecureFileTest, CursorDetectsChangeBetweenInferenceAndFirstOutput)
   EXPECT_EQ(Status::IO_ERROR, cursor.rewind());
 }
 
-TEST_F(SecureFileTest, FailedPrepareCannotReviveAnOldSchema)
+TEST_F(FileSqlLocalSecureFile, FailedPrepareCannotReviveAnOldSchema)
 {
   QueryOptions options;
   options.path = "sub/data.csv";
@@ -224,7 +224,7 @@ TEST_F(SecureFileTest, FailedPrepareCannotReviveAnOldSchema)
   EXPECT_EQ(Status::INVALID, cursor.next(row));
 }
 
-TEST_F(SecureFileTest, GlobCursorReturnsPathsAndRejectsChangedRescans)
+TEST_F(FileSqlLocalSecureFile, GlobCursorReturnsPathsAndRejectsChangedRescans)
 {
   QueryOptions options;
   options.path = "sub/*.csv";
