@@ -377,7 +377,6 @@ SHARE_PRIVATE_HEADERS = [
     "redolog/ob_clog_switch_write_callback.h",
     "redolog/ob_log_file_reader.h",
     "redolog/ob_log_write_callback.h",
-    "schema/ob_ai_column_schema.h",
     "schema/ob_ai_model_schema_getter_guard.ipp",
     "schema/ob_context_type.h",
     "schema/ob_partition_array_utils.h",
