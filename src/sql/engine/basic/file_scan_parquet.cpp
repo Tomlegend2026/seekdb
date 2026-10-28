@@ -953,7 +953,8 @@ void format_date(int32_t days, std::string &out)
   const uint32_t month_index = (5 * day_of_year + 2) / 153;
   const uint32_t day = day_of_year - (153 * month_index + 2) / 5 + 1;
   const uint32_t month = month_index < 10 ? month_index + 3 : month_index - 9;
-  const int32_t full_year = month < 10 ? year : year + 1;
+  // Months 1 and 2 belong to the prior civil year in the 3-March epoch.
+  const int32_t full_year = month <= 2 ? year + 1 : year;
   out.clear();
   out.append(std::to_string(full_year));
   out.push_back('-');
@@ -1308,11 +1309,13 @@ Status ParquetReader::Impl::decode_page(size_t index, const PageHeader &header,
         return fail(Status::INVALID, "The Parquet definition level encoding is not supported");
       }
       if (plain.size() - position < 4) {
+        return fail(Status::INVALID, "The Parquet page is missing definition levels");
       }
       uint32_t length = 0;
       memcpy(&length, plain.data() + position, sizeof(length));
       position += 4;
       if (length > plain.size() - position) {
+        return fail(Status::INVALID, "The Parquet definition levels exceed the page");
       }
       int bit_width = 0;
       while ((1 << bit_width) <= column.max_definition_level) { ++bit_width; }
@@ -1387,7 +1390,9 @@ Status ParquetReader::Impl::decode_page(size_t index, const PageHeader &header,
       is_null = definition_levels[i] < column.max_definition_level;
     }
     if (is_null) {
-      state.pending.push_back(Field());
+      Field field;
+      field.is_null = true;
+      state.pending.push_back(std::move(field));
     } else {
       if (next_value >= rendered.size()) {
         return fail(Status::INVALID, "The Parquet page has fewer values than its definition levels");

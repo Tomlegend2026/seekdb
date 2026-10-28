@@ -18,6 +18,7 @@ add_executable(file_scan_utils_regression
   sql/test_file_scan_file.cpp
   sql/test_file_scan_json.cpp
   sql/test_file_scan_glob.cpp
+  sql/test_file_scan_parquet.cpp
   ${PROJECT_SOURCE_DIR}/src/sql/engine/basic/file_scan_utils.cpp
   ${PROJECT_SOURCE_DIR}/src/sql/engine/basic/file_scan_file.cpp
   ${PROJECT_SOURCE_DIR}/src/sql/engine/basic/file_scan_cursor.cpp
