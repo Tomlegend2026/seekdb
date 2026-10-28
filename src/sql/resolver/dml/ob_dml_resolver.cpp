@@ -3729,7 +3729,13 @@ int ObDMLResolver::resolve_file_table_item(const ParseNode &node, TableItem *&ta
   for (int i = 1; OB_SUCC(ret) && i < args.num_child_; ++i) {
     const ParseNode *arg = args.children_[i];
     if (arg == nullptr || arg->type_ != T_OP_EQ || arg->num_child_ != 2 || arg->children_[0] == nullptr) {
-      return OB_ERR_PARSER_SYNTAX;
+      // A file reader option must be a named argument such as `header = true`.
+      // Report a positional argument as a parse error so that clients observe
+      // the MySQL 1064 syntax error instead of the generic 1149.
+      const std::string arg_text = text(arg);
+      LOG_USER_ERROR(OB_ERR_PARSE_SQL, ob_errpkt_strerror(OB_ERR_PARSER_SYNTAX),
+                     static_cast<int32_t>(arg_text.size()), arg_text.c_str(), 1);
+      return OB_ERR_PARSE_SQL;
     }
     const ParseNode *key = arg->children_[0];
     if (key->type_ == T_COLUMN_REF && key->num_child_ == 3
