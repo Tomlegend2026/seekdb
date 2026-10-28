@@ -395,6 +395,7 @@ END_P SET_VAR DELIMITER
 %type <node> update_asgn_list update_asgn_factor
 %type <node> update_basic_stmt delete_basic_stmt
 %type <node> table_element_list table_element column_definition column_definition_ref column_definition_list column_name_list
+%type <node> opt_ai_column_options ai_column_option_list ai_column_option
 %type <node> opt_generated_keyname opt_generated_option_list opt_generated_column_attribute_list generated_column_attribute opt_storage_type
 %type <node> data_type special_table_type opt_if_not_exists opt_if_exists opt_charset collation opt_collation cast_data_type
 %type <node> replace_with_opt_hint insert_with_opt_hint column_list opt_on_duplicate_key_clause opt_into opt_replace opt_temporary no_param_column_ref
@@ -6167,6 +6168,10 @@ not NULLX
 {
   malloc_terminal_node($$, result->malloc_pool_, T_CONSTR_UNIQUE_KEY);
 }
+| AI COLUMN '(' expr ')' opt_ai_column_options
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_CONSTR_AI_COLUMN, 2, $4, $6);
+}
 | opt_primary KEY
 {
   (void)($1);
@@ -6241,6 +6246,27 @@ not NULLX
 | INVISIBLE
 {
   malloc_terminal_node($$, result->malloc_pool_, T_INVISIBLE);
+}
+;
+
+opt_ai_column_options:
+/*EMPTY*/
+{ $$ = NULL; }
+| WITH '(' ai_column_option_list ')'
+{ $$ = $3; }
+;
+
+ai_column_option_list:
+ai_column_option_list ',' ai_column_option
+{ malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $3); }
+| ai_column_option
+{ $$ = $1; }
+;
+
+ai_column_option:
+column_name COMP_EQ expr
+{
+  malloc_non_terminal_node($$, result->malloc_pool_, T_LINK_NODE, 2, $1, $3);
 }
 ;
 

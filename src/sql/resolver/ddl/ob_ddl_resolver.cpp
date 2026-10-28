@@ -2286,6 +2286,18 @@ int ObDDLResolver::resolve_normal_column_attribute(ObColumnSchemaV2 &column,
       {
         break;
       }
+      case T_CONSTR_AI_COLUMN: {
+        // The grammar recognizes the attribute, but creating an ordinary
+        // column here would silently discard its AI definition. Fail closed
+        // until catalog persistence and task scheduling are wired into DDL.
+        if (attr_node->num_child_ != 2 || OB_ISNULL(attr_node->children_[0])) {
+          ret = OB_ERR_UNEXPECTED;
+        } else {
+          ret = OB_NOT_SUPPORTED;
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "AI COLUMN execution (syntax recognized)");
+        }
+        break;
+      }
       default:  // won't be here
         ret = OB_ERR_PARSER_SYNTAX;
         SQL_RESV_LOG(WARN, "Wrong column attribute", K(ret), K(attr_node->type_));
