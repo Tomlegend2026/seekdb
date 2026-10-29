@@ -44,15 +44,12 @@ public:
   ~ObBEngFTParser() { reset(); }
 
   int init(ObFTParserParam *param);
-  int reuse(ObFTParserParam *param);
   void reset();
   virtual int get_next_token(
       const char *&word,
       int64_t &word_len,
       int64_t &char_len,
       int64_t &word_freq) override;
-  
-  bool is_inited() const { return is_inited_; }
 
   VIRTUAL_TO_STRING_KV(K_(analysis_ctx), K_(english_analyzer), KP_(token_stream), K_(is_inited));
 private:

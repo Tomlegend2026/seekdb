@@ -195,31 +195,17 @@ int ObIKFTParserDesc::segment(ObFTParserParam *param, ObITokenIterator *&iter) c
   int ret = OB_SUCCESS;
   ObIKFTParser *parser = nullptr;
   ObFTDictHub *hub = nullptr;
-  bool is_new_parser = false;
-  
   if (OB_ISNULL(param) || OB_UNLIKELY(!param->is_valid())) {
     ret = OB_INVALID_ARGUMENT;
   } else if (OB_FAIL(ObFTParseData::instance().get_dict_hub(hub))) {
-  } else if (OB_FAIL(ObFTParseData::instance().get_or_create_ik_parser(
-                 param->cs_->coll_type, *param->allocator_, parser))) {
-  } else if (OB_ISNULL(parser)) {
-    ret = OB_ERR_UNEXPECTED;
+  } else if (OB_ISNULL(parser = OB_NEWx(ObIKFTParser, param->allocator_, *(param->allocator_), hub))) {
+    ret = OB_ALLOCATE_MEMORY_FAILED;
+  } else if (OB_FAIL(parser->init(*param))) {
   } else {
-    is_new_parser = !parser->is_inited();
-    if (is_new_parser) {
-      if (OB_FAIL(parser->init(*param))) {
-      }
-    } else {
-      if (OB_FAIL(parser->reuse(*param))) {
-      }
-    }
-    
-    if (OB_SUCC(ret)) {
-      iter = parser;
-    }
+    iter = parser;
   }
 
-  if (OB_FAIL(ret) && is_new_parser && OB_NOT_NULL(parser)) {
+  if (OB_FAIL(ret)) {
     OB_DELETEx(ObIKFTParser, param->allocator_, parser);
   }
 
@@ -229,8 +215,8 @@ int ObIKFTParserDesc::segment(ObFTParserParam *param, ObITokenIterator *&iter) c
 void ObIKFTParserDesc::free_token_iter(ObFTParserParam *param,
                                        ObITokenIterator *&iter) const
 {
-  // Parser is cached globally, do not destroy it
-  iter = nullptr;
+  iter->~ObITokenIterator();
+  param->allocator_->free(iter);
 }
 
 
@@ -394,20 +380,6 @@ void ObIKFTParser::reset()
   }
 
   is_inited_ = false;
-}
-
-int ObIKFTParser::reuse(const ObFTParserParam &param)
-{
-  int ret = OB_SUCCESS;
-  if (OB_UNLIKELY(!is_inited_)) {
-    ret = OB_NOT_INIT;
-  } else if (OB_ISNULL(ctx_)) {
-    ret = OB_NOT_INIT;
-  } else {
-    ctx_->reset_resource();
-    ctx_->reset(param.fulltext_, param.ft_length_);
-  }
-  return ret;
 }
 
 bool ObIKFTParser::should_read_newest_table() const { return false; }

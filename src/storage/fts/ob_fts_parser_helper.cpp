@@ -185,7 +185,6 @@ int ObFTParseData::init()
                                       mem_attr))) {
   } else if (OB_FAIL(init_and_set_stopword_list())) {
   } else if (OB_FAIL(init_dict_hub())) {
-  } else if (OB_FAIL(parser_cache_.create(1024, "ParserCache"))) {
   } else {
     is_inited_ = true;
     FLOG_INFO("succeeded to initialize fulltext parser data", KP(this));
@@ -239,7 +238,6 @@ void ObFTParseData::destroy()
     dict_hub_ = nullptr;
   }
 
-  parser_cache_.destroy();
   handler_allocator_.reset();
   is_inited_ = false;
 }
@@ -253,130 +251,6 @@ int ObFTParseData::get_dict_hub(ObFTDictHub *&hub)
     hub = dict_hub_;
   }
   return ret;
-}
-
-int ObFTParseData::get_or_create_ik_parser(ObCollationType coll_type, ObIAllocator &allocator, ObIKFTParser *&parser)
-{
-  int ret = OB_SUCCESS;
-  ObParserCacheKey key(ObFTParser::FTP_IK, coll_type);
-  ObParserCacheValue value;
-  bool found = false;
-  
-  {
-    common::ObMutexGuard guard(parser_cache_mutex_);
-    if (OB_FAIL(parser_cache_.get_refactored(key, value))) {
-      if (OB_HASH_NOT_EXIST == ret) {
-        found = false;
-        ret = OB_SUCCESS;
-      }
-    } else {
-      found = true;
-    }
-  }
-  
-  if (OB_SUCC(ret) && found) {
-    parser = reinterpret_cast<ObIKFTParser *>(value.parser_);
-  } else if (OB_SUCC(ret) && !found) {
-    ObFTDictHub *hub = nullptr;
-    if (OB_FAIL(get_dict_hub(hub))) {
-    } else if (OB_ISNULL(parser = OB_NEWx(ObIKFTParser, &allocator, allocator, hub))) {
-      ret = OB_ALLOCATE_MEMORY_FAILED;
-    } else {
-      value = ObParserCacheValue(parser, ObFTParser::FTP_IK);
-      common::ObMutexGuard guard(parser_cache_mutex_);
-      int hash_ret = parser_cache_.set_refactored(key, value, 1);
-      if (OB_SUCCESS != hash_ret) {
-        OB_DELETEx(ObIKFTParser, &allocator, parser);
-        parser = nullptr;
-        ret = hash_ret;
-      }
-    }
-  }
-  
-  return ret;
-}
-
-int ObFTParseData::get_or_create_beng_parser(ObCollationType coll_type, ObIAllocator &allocator, ObBEngFTParser *&parser)
-{
-  int ret = OB_SUCCESS;
-  ObParserCacheKey key(ObFTParser::FTP_BENG, coll_type);
-  ObParserCacheValue value;
-  bool found = false;
-  
-  {
-    common::ObMutexGuard guard(parser_cache_mutex_);
-    if (OB_FAIL(parser_cache_.get_refactored(key, value))) {
-      if (OB_HASH_NOT_EXIST == ret) {
-        found = false;
-        ret = OB_SUCCESS;
-      }
-    } else {
-      found = true;
-    }
-  }
-  
-  if (OB_SUCC(ret) && found) {
-    parser = reinterpret_cast<ObBEngFTParser *>(value.parser_);
-  } else if (OB_SUCC(ret) && !found) {
-    if (OB_ISNULL(parser = OB_NEWx(ObBEngFTParser, &allocator, allocator))) {
-      ret = OB_ALLOCATE_MEMORY_FAILED;
-    } else {
-      value = ObParserCacheValue(parser, ObFTParser::FTP_BENG);
-      common::ObMutexGuard guard(parser_cache_mutex_);
-      int hash_ret = parser_cache_.set_refactored(key, value, 1);
-      if (OB_SUCCESS != hash_ret) {
-        OB_DELETEx(ObBEngFTParser, &allocator, parser);
-        parser = nullptr;
-        ret = hash_ret;
-      }
-    }
-  }
-  
-  return ret;
-}
-
-// ObTokenMapCache implementation
-int ObTokenMapCache::get_or_create(int64_t bucket_count, common::ObIAllocator &allocator, ObFTWordMap *&map)
-{
-  int ret = OB_SUCCESS;
-  
-  if (OB_NOT_NULL(map_) && OB_NOT_NULL(allocator_) && allocator_ == &allocator) {
-    // Reuse existing map, just clear it
-    map_->clear();
-    map = map_;
-  } else {
-    // Create new map
-    if (OB_NOT_NULL(map_)) {
-      map_->destroy();
-      allocator_->free(map_);
-      map_ = nullptr;
-    }
-    
-    map = OB_NEWx(ObFTWordMap, &allocator);
-    if (OB_ISNULL(map)) {
-      ret = OB_ALLOCATE_MEMORY_FAILED;
-    } else if (OB_FAIL(map->create(bucket_count, common::ObMemAttr("FTWordMap")))) {
-      OB_DELETEx(ObFTWordMap, &allocator, map);
-      map = nullptr;
-    } else {
-      map_ = map;
-      allocator_ = &allocator;
-    }
-  }
-  
-  return ret;
-}
-
-void ObTokenMapCache::reset()
-{
-  if (OB_NOT_NULL(map_)) {
-    map_->destroy();
-    if (OB_NOT_NULL(allocator_)) {
-      allocator_->free(map_);
-    }
-    map_ = nullptr;
-    allocator_ = nullptr;
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
