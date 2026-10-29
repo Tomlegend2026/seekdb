@@ -18,6 +18,7 @@
 
 #include "storage/fts/ob_beng_ft_parser.h"
 #include "data_plane/fts/ob_fts_struct.h"
+#include "data_plane/fts/ob_fts_parser_helper.h"
 
 using namespace oceanbase::common;
 
@@ -113,6 +114,27 @@ void ObBEngFTParser::reset()
   is_inited_ = false;
 }
 
+int ObBEngFTParser::reuse(ObFTParserParam *param)
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(!is_inited_)) {
+    ret = OB_NOT_INIT;
+  } else if (OB_ISNULL(param) || OB_UNLIKELY(!param->is_valid())) {
+    ret = OB_INVALID_ARGUMENT;
+  } else if (OB_UNLIKELY(UINT32_MAX < param->ft_length_)) {
+    ret = OB_NOT_SUPPORTED;
+  } else {
+    english_analyzer_.reset();
+    doc_.set_string(param->fulltext_, param->ft_length_);
+    token_stream_ = nullptr;
+    if (OB_FAIL(segment(doc_, token_stream_))) {
+    } else if (OB_ISNULL(token_stream_)) {
+      ret = OB_ERR_UNEXPECTED;
+    }
+  }
+  return ret;
+}
+
 ObBasicEnglishFTParserDesc::ObBasicEnglishFTParserDesc() {}
 
 int ObBasicEnglishFTParserDesc::segment(
@@ -121,16 +143,30 @@ int ObBasicEnglishFTParserDesc::segment(
 {
   int ret = OB_SUCCESS;
   ObBEngFTParser *parser = nullptr;
+  bool is_new_parser = false;
+  
   if (OB_ISNULL(param) || OB_ISNULL(param->fulltext_) || OB_UNLIKELY(!param->is_valid())) {
     ret = OB_INVALID_ARGUMENT;
-  } else if (OB_ISNULL(parser = OB_NEWx(ObBEngFTParser, param->allocator_, *(param->allocator_)))) {
-    ret = OB_ALLOCATE_MEMORY_FAILED;
-  } else if (OB_FAIL(parser->init(param))) {
+  } else if (OB_FAIL(ObFTParseData::instance().get_or_create_beng_parser(
+                 param->cs_->coll_type, *param->allocator_, parser))) {
+  } else if (OB_ISNULL(parser)) {
+    ret = OB_ERR_UNEXPECTED;
   } else {
-    iter = parser;
+    is_new_parser = !parser->is_inited();
+    if (is_new_parser) {
+      if (OB_FAIL(parser->init(param))) {
+      }
+    } else {
+      if (OB_FAIL(parser->reuse(param))) {
+      }
+    }
+    
+    if (OB_SUCC(ret)) {
+      iter = parser;
+    }
   }
 
-  if (OB_FAIL(ret)) {
+  if (OB_FAIL(ret) && is_new_parser && OB_NOT_NULL(parser)) {
     OB_DELETEx(ObBEngFTParser, param->allocator_, parser);
   }
 
@@ -141,12 +177,8 @@ void ObBasicEnglishFTParserDesc::free_token_iter(
     ObFTParserParam *param,
     ObITokenIterator *&iter) const
 {
-  if (OB_NOT_NULL(iter)) {
-    abort_unless(nullptr != param);
-    abort_unless(nullptr != param->allocator_);
-    iter->~ObITokenIterator();
-    param->allocator_->free(iter);
-  }
+  // Parser is cached globally, do not destroy it
+  iter = nullptr;
 }
 
 int ObBasicEnglishFTParserDesc::get_add_word_flag(ObAddWordFlag &flag) const

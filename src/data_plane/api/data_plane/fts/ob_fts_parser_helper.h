@@ -20,6 +20,8 @@
 #include "lib/allocator/ob_fifo_allocator.h"
 #include "lib/charset/ob_charset.h"
 #include "lib/string/ob_string.h"
+#include "lib/hash/ob_hashmap.h"
+#include "lib/lock/ob_mutex.h"
 #include "object/ob_object.h"
 #include "data_plane/fts/ob_fts_parser.h"
 #include "data_plane/fts/ob_fts_parser_name.h"
@@ -39,6 +41,57 @@ namespace storage
 class ObStopWordChecker;
 class ObFTDictHub;
 class ObAddWord;
+class ObIKFTParser;
+class ObBEngFTParser;
+
+struct ObParserCacheKey
+{
+  int64_t parser_type_;
+  ObCollationType coll_type_;
+  
+  ObParserCacheKey() : parser_type_(-1), coll_type_(CS_TYPE_INVALID) {}
+  ObParserCacheKey(int64_t type, ObCollationType coll) : parser_type_(type), coll_type_(coll) {}
+  
+  uint64_t hash() const {
+    uint64_t h = murmurhash(&parser_type_, sizeof(parser_type_), 0);
+    h = murmurhash(&coll_type_, sizeof(coll_type_), h);
+    return h;
+  }
+  
+  bool operator==(const ObParserCacheKey &other) const {
+    return parser_type_ == other.parser_type_ && coll_type_ == other.coll_type_;
+  }
+};
+
+struct ObParserCacheValue
+{
+  void *parser_;
+  int64_t parser_type_;
+  
+  ObParserCacheValue() : parser_(nullptr), parser_type_(-1) {}
+  ObParserCacheValue(void *p, int64_t type) : parser_(p), parser_type_(type) {}
+};
+
+// Thread-local token map cache to avoid frequent HashMap creation/destruction
+class ObTokenMapCache
+{
+public:
+  static ObTokenMapCache &instance()
+  {
+    static thread_local ObTokenMapCache cache;
+    return cache;
+  }
+  
+  int get_or_create(int64_t bucket_count, common::ObIAllocator &allocator, ObFTWordMap *&map);
+  void reset();
+  
+private:
+  ObTokenMapCache() : map_(nullptr), allocator_(nullptr) {}
+  ~ObTokenMapCache() { reset(); }
+  
+  ObFTWordMap *map_;
+  common::ObIAllocator *allocator_;
+};
 
 #define FTS_BUILD_IN_PARSER_LIST                                                                   \
   FT_PARSER_TYPE(FTP_SPACE, space)                                                                 \
@@ -119,6 +172,9 @@ public:
 public:
   ObStopWordChecker *stop_word_checker() const { return stop_word_checker_; }
   int get_dict_hub(ObFTDictHub *&hub);
+  
+  int get_or_create_ik_parser(ObCollationType coll_type, ObIAllocator &allocator, ObIKFTParser *&parser);
+  int get_or_create_beng_parser(ObCollationType coll_type, ObIAllocator &allocator, ObBEngFTParser *&parser);
 
 private:
   int init_and_set_stopword_list();
@@ -128,6 +184,11 @@ private:
   ObStopWordChecker *     stop_word_checker_ = nullptr;
   ObFTDictHub *           dict_hub_          = nullptr;
   common::ObFIFOAllocator handler_allocator_;
+  
+  typedef common::hash::ObHashMap<ObParserCacheKey, ObParserCacheValue> ParserCacheMap;
+  ParserCacheMap                  parser_cache_;
+  common::ObMutex                 parser_cache_mutex_;
+  
   bool                    is_inited_         = false;
 };
 

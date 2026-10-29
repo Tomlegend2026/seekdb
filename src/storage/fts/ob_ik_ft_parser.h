@@ -54,10 +54,14 @@ public:
 
   int init(const ObFTParserParam &param);
 
+  int reuse(const ObFTParserParam &param);
+
   int get_next_token(const char *&word,
                      int64_t &word_len,
                      int64_t &char_cnt,
                      int64_t &word_freq) override;
+  
+  bool is_inited() const { return is_inited_; }
 
   VIRTUAL_TO_STRING_KV(K(is_inited_));
 
