@@ -1,12 +1,40 @@
 #include "share/schema/ob_ai_column_schema.h"
+#include "share/schema/ai_column_catalog.h"
+#include "common/mysqlclient/ob_isql_client.h"
 #include "share/schema/ob_table_schema.h"
+#include "share/schema/ob_column_schema.h"
 #include "lib/allocator/ob_allocator.h"
 #include <gtest/gtest.h>
 #include <vector>
+#include <cstdlib>
+#include <iostream>
 
 using namespace oceanbase::common;
 using oceanbase::share::schema::ObAiColumnSchema;
 using oceanbase::share::schema::ObTableSchema;
+using oceanbase::share::schema::ObColumnSchemaV2;
+using oceanbase::share::schema::AiColumnCatalog;
+
+class CatalogWriteProbe final : public ObISQLClient
+{
+public:
+  int escape(const char *, int64_t, char *, int64_t, int64_t &) override
+  { return OB_NOT_SUPPORTED; }
+  int read(ReadResult &, const char *sql, int32_t) override
+  { reads.emplace_back(sql); return error == OB_SUCCESS ? OB_NOT_SUPPORTED : error; }
+  int write(const char *sql, int32_t, int64_t &affected) override
+  {
+    statements.emplace_back(sql);
+    affected = affected_rows;
+    return fail_at == 0 || statements.size() == fail_at ? error : OB_SUCCESS;
+  }
+  oceanbase::common::sqlclient::ObISQLConnection *get_connection() override { return nullptr; }
+  std::vector<std::string> statements;
+  std::vector<std::string> reads;
+  int64_t affected_rows = 1;
+  int error = OB_SUCCESS;
+  size_t fail_at = 0;
+};
 
 static void populate(ObAiColumnSchema &schema)
 {
@@ -23,6 +51,116 @@ static void populate(ObAiColumnSchema &schema)
   ASSERT_EQ(OB_SUCCESS, schema.set_normalized_expr(ObString("AI_COMPLETE(model, content)")));
   ASSERT_EQ(OB_SUCCESS, schema.set_sync_mode(ObString("async")));
   ASSERT_EQ(OB_SUCCESS, schema.add_dependency_column_id(17));
+}
+
+TEST(AiColumnCatalog, EncodingRejectsCorruptionWithoutReplacingDefinition)
+{
+  ObArenaAllocator allocator, destination_allocator;
+  ObAiColumnSchema source(&allocator), decoded(&destination_allocator);
+  populate(source);
+  ObString hex;
+  ASSERT_EQ(OB_SUCCESS, AiColumnCatalog::encode(source, allocator, hex));
+  ASSERT_EQ(OB_SUCCESS, AiColumnCatalog::decode(hex, allocator, decoded));
+  EXPECT_EQ(17, decoded.get_dependency_column_ids().at(0));
+  EXPECT_EQ(OB_INVALID_ARGUMENT, AiColumnCatalog::decode(ObString("abc"), allocator, decoded));
+  EXPECT_EQ(OB_INVALID_ARGUMENT, AiColumnCatalog::decode(ObString("zz"), allocator, decoded));
+  std::string trailing(hex.ptr(), hex.length());
+  trailing += "00";
+  EXPECT_EQ(OB_INVALID_ARGUMENT, AiColumnCatalog::decode(
+      ObString(trailing.length(), trailing.data()), allocator, decoded));
+  std::string truncated(hex.ptr(), hex.length() - 2);
+  EXPECT_NE(OB_SUCCESS, AiColumnCatalog::decode(
+      ObString(truncated.length(), truncated.data()), allocator, decoded));
+  allocator.reuse();
+  EXPECT_EQ(ObString("tags"), decoded.get_column_name());
+  EXPECT_EQ(ObString("AI_COMPLETE(model, content)"), decoded.get_normalized_expr());
+}
+
+TEST(AiColumnCatalog, WritesUseCallerClientAndPropagateFailure)
+{
+  ObArenaAllocator allocator;
+  ObAiColumnSchema source(&allocator);
+  populate(source);
+  ASSERT_EQ(OB_SUCCESS, source.set_normalized_expr(
+      ObString("AI_COMPLETE('model', CONCAT(content, '\n''; DROP TABLE victim;--'))")));
+  ObSEArray<ObAiColumnSchema, 1> definitions;
+  ASSERT_EQ(OB_SUCCESS, definitions.push_back(source));
+  ObTableSchema table(&allocator);
+  table.set_table_id(2001);
+  table.set_schema_version(7);
+  ASSERT_EQ(OB_SUCCESS, table.set_ai_column_infos(definitions));
+  CatalogWriteProbe client;
+  ASSERT_EQ(OB_SUCCESS, AiColumnCatalog::insert(client, table));
+  ASSERT_EQ(2, client.statements.size());
+  if (std::getenv("AI_CATALOG_SQL_FIXTURE") != nullptr) {
+    for (const auto &sql : client.statements) { std::cout << "AI_CATALOG_INSERT_SQL " << sql << '\n'; }
+  }
+  EXPECT_NE(std::string::npos, client.statements.front().find("definition_data"));
+  EXPECT_NE(std::string::npos, client.statements.front().find("2001"));
+  EXPECT_EQ(std::string::npos, client.statements.front().find("DROP TABLE victim"));
+  client.statements.clear();
+  client.error = OB_TIMEOUT;
+  client.fail_at = 2;
+  EXPECT_EQ(OB_TIMEOUT, AiColumnCatalog::insert(client, table));
+  EXPECT_EQ(2, client.statements.size());
+  client.fail_at = 0;
+  client.error = OB_TIMEOUT;
+  EXPECT_EQ(OB_TIMEOUT, AiColumnCatalog::insert(client, table));
+  client.error = OB_SUCCESS;
+  client.affected_rows = 0;
+  EXPECT_EQ(OB_ERR_UNEXPECTED, AiColumnCatalog::insert(client, table));
+  client.statements.clear();
+  client.affected_rows = 1;
+  client.error = OB_TIMEOUT;
+  EXPECT_EQ(OB_TIMEOUT, AiColumnCatalog::remove(client, table, 9));
+  ASSERT_EQ(1, client.statements.size());
+  EXPECT_NE(std::string::npos, client.statements.front().find("__all_ai_column_history"));
+  client.statements.clear();
+  client.error = OB_SUCCESS;
+  EXPECT_EQ(OB_SUCCESS, AiColumnCatalog::remove(client, table, 9));
+  EXPECT_EQ(3, client.statements.size());
+  if (std::getenv("AI_CATALOG_SQL_FIXTURE") != nullptr) {
+    for (const auto &sql : client.statements) { std::cout << "AI_CATALOG_DELETE_SQL " << sql << '\n'; }
+  }
+  ObTableSchema ordinary(&allocator);
+  client.statements.clear();
+  EXPECT_EQ(OB_SUCCESS, AiColumnCatalog::insert(client, ordinary));
+  EXPECT_EQ(OB_SUCCESS, AiColumnCatalog::remove(client, ordinary, 9));
+  EXPECT_EQ(OB_SUCCESS, AiColumnCatalog::load(client, ordinary));
+  EXPECT_TRUE(client.statements.empty());
+  EXPECT_TRUE(client.reads.empty());
+}
+
+TEST(AiColumnCatalog, FailedHistoricalReadKeepsSchema)
+{
+  ObArenaAllocator allocator;
+  ObAiColumnSchema source(&allocator);
+  populate(source);
+  ObSEArray<ObAiColumnSchema, 1> definitions;
+  ASSERT_EQ(OB_SUCCESS, definitions.push_back(source));
+  ObTableSchema table(&allocator);
+  table.set_table_id(2001);
+  table.set_schema_version(7);
+  ASSERT_EQ(OB_SUCCESS, table.set_ai_column_infos(definitions));
+  ObColumnSchemaV2 hidden(&allocator);
+  hidden.set_table_id(2001);
+  hidden.set_column_id(21);
+  hidden.set_data_type(ObIntType);
+  hidden.set_is_hidden(true);
+  ASSERT_EQ(OB_SUCCESS, hidden.set_column_name(ObString("__ai_state_20")));
+  ASSERT_EQ(OB_SUCCESS, table.add_column(hidden));
+  ASSERT_TRUE(AiColumnCatalog::has_storage(table));
+  CatalogWriteProbe client;
+  client.error = OB_TIMEOUT;
+  EXPECT_EQ(OB_TIMEOUT, AiColumnCatalog::load(client, table));
+  ASSERT_EQ(1, client.reads.size());
+  EXPECT_NE(std::string::npos, client.reads.front().find("schema_version<=7"));
+  EXPECT_NE(std::string::npos, client.reads.front().find("is_deleted=0"));
+  if (std::getenv("AI_CATALOG_SQL_FIXTURE") != nullptr) {
+    std::cout << "AI_CATALOG_READ_SQL " << client.reads.front() << '\n';
+  }
+  ASSERT_EQ(1, table.get_ai_column_infos().count());
+  EXPECT_EQ(ObString("tags"), table.get_ai_column_infos().at(0).get_column_name());
 }
 
 TEST(AiColumnSchema, DependencyCopyAndSerialization)

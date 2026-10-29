@@ -2534,7 +2534,8 @@ all_ai_column_def = dict(
         ('request_column_id', 'int', 'false'),
         ('result_spec_column_id', 'int', 'false'),
         ('result_type', 'int', 'false'),
-        ('result_dimension', 'int', 'true')
+        ('result_dimension', 'int', 'true'),
+        ('definition_data', 'longtext', 'true')
   ]
 )
 def_table_schema(**all_ai_column_def)
@@ -2563,6 +2564,19 @@ all_ai_column_task_def = dict(
   ]
 )
 def_table_schema(**all_ai_column_task_def)
+
+all_ai_column_history_def = dict(
+    owner='team',
+    table_name='__all_ai_column_history',
+    table_id='1144',
+    table_type='SYSTEM_TABLE',
+    gm_columns=['gmt_create', 'gmt_modified'],
+    rowkey_columns=[('table_id', 'int'), ('column_id', 'int'), ('schema_version', 'int')],
+    is_cluster_private=False,
+    meta_record_in_sys=False,
+    normal_columns=list(all_ai_column_def['normal_columns']) + [('is_deleted', 'int', 'false')]
+)
+def_table_schema(**all_ai_column_history_def)
 
 def_table_schema(
   owner = 'bin.lb',

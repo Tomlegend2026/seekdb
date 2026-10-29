@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SHARE_SCHEMA
 #include "ob_table_sql_service.h"
+#include "share/schema/ai_column_catalog.h"
 #include "lib/literals/ob_literals.h"
 #include "share/ob_global_stat_proxy.h"
 #include "share/schema/ob_constraint.h"
@@ -716,6 +717,9 @@ int ObTableSqlService::drop_table(const ObTableSchema &table_schema,
     // Foreign keys should be dropped while dropping the table.
     if (OB_FAIL(delete_foreign_key(sql_client, table_schema, new_schema_version, is_truncate_table))) {
     }
+  }
+
+  if (OB_SUCC(ret) && OB_FAIL(AiColumnCatalog::remove(sql_client, table_schema, new_schema_version))) {
   }
 
   // delete constraint here
@@ -2163,6 +2167,7 @@ int ObTableSqlService::batch_create_table(ObIArray<ObTableSchema> &tables,
       for (int64_t i = 0; i < tables.count() && OB_SUCC(ret); i++) {
         if (is_inner_table(tables.at(i).get_table_id())) {
         } else if (OB_FAIL(add_foreign_key(sql_client, tables.at(i), false/*only_history*/))) {
+        } else if (OB_FAIL(AiColumnCatalog::insert(sql_client, tables.at(i)))) {
         }
       }
       time_guard.click("add_foreign_key");

@@ -17,6 +17,7 @@
 #define USING_LOG_PREFIX SHARE_SCHEMA
 #include "config_bridge.h"
 #include "ob_schema_service_sql_impl.h"
+#include "share/schema/ai_column_catalog.h"
 #include "share/ob_global_stat_proxy.h"
 #include "share/ob_share_util.h"
 // TODO, move basic structs to ob_schema_struct.h
@@ -4085,6 +4086,8 @@ int ObSchemaServiceSQLImpl::get_not_core_table_schema(
   } else if (!is_schema_fetch_dependency
              && OB_FAIL(fetch_partition_info(schema_status, table_id, schema_version,
                                              sql_client, table_schema))) {
+  }
+  if (OB_SUCC(ret) && OB_FAIL(AiColumnCatalog::load(sql_client, *table_schema))) {
   }
   if (OB_SUCC(ret) && !is_schema_fetch_dependency
       && OB_FAIL(fetch_foreign_key_info(schema_status, table_id, schema_version,

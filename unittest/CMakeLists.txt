@@ -10,7 +10,8 @@ add_test(NAME ai_function_regression COMMAND ai_function_regression)
 
 add_executable(ai_column_schema_regression
   share/schema/test_ai_column_schema.cpp
-  ${PROJECT_SOURCE_DIR}/src/share/schema/ob_ai_column_schema.cpp)
+  ${PROJECT_SOURCE_DIR}/src/share/schema/ob_ai_column_schema.cpp
+  ${PROJECT_SOURCE_DIR}/src/share/schema/ai_column_catalog.cpp)
 target_link_libraries(ai_column_schema_regression PRIVATE
   oceanbase ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)
 add_test(NAME ai_column_schema_regression COMMAND ai_column_schema_regression)

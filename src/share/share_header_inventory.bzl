@@ -188,6 +188,7 @@ SHARE_PUBLIC_HEADER_ROOTS = [
     "roaringbitmap/ob_rb_memory_mgr.h",
     "rpc/ob_server_task.h",
     "schema/ob_ai_model_sql_service.h",
+    "schema/ai_column_catalog.h",
     "schema/ob_col_desc.h",
     "schema/ob_column_schema.h",
     "schema/ob_constraint.h",
