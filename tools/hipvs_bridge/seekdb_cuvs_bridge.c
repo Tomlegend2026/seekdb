@@ -8,8 +8,11 @@
 #else
 #include <cuda_runtime.h>
 #endif
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 typedef struct {
   cuvsResources_t        res;
@@ -17,6 +20,30 @@ typedef struct {
   cuvsCagraIndex_t       idx;
   long n, dim;
 } sk_cuvs_index;
+
+/* The contest baseline used the hipVS large-dataset test configuration
+ * (degree 128 / intermediate degree 256 / 100 NN-Descent iterations).  The
+ * high degree is needed to keep 256-d recall above the gate, but 100
+ * iterations are far past the point where the graph stabilises for a 250K
+ * point dataset.  Keep the degree configuration identical and shorten only
+ * the refinement phase, which is the dominant cost of the build.  The
+ * 256-d path keeps a longer schedule because its recall is the tight one. */
+static size_t sk_nn_descent_niter(long dim)
+{
+  const char* override_value = getenv("SEEKDB_CUVS_NITER");
+  if (override_value != NULL && override_value[0] != '\0') {
+    long value = strtol(override_value, NULL, 10);
+    if (value > 0) { return (size_t)value; }
+  }
+  return dim <= 128 ? 40 : 64;
+}
+
+static double sk_now_seconds(void)
+{
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) { return 0.0; }
+  return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
 
 void* seekdb_cuvs_build(const float* base, long n, long dim)
 {
@@ -31,14 +58,19 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.dtype.code = kDLFloat; dset.dl_tensor.dtype.bits = 32; dset.dl_tensor.dtype.lanes = 1;
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
+  const size_t niter = sk_nn_descent_niter(dim);
+  const double started = sk_now_seconds();
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->build_algo = NN_DESCENT;
   h->ip->graph_degree = 128;
   h->ip->intermediate_graph_degree = 256;
-  h->ip->nn_descent_niter = 100;
+  h->ip->nn_descent_niter = niter;
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
   h->n = n; h->dim = dim;
+  fprintf(stderr, "[seekdb_cuvs] build n=%ld dim=%ld degree=%zu intermediate=%zu niter=%zu %.3fs\n",
+          n, dim, h->ip->graph_degree, h->ip->intermediate_graph_degree, niter,
+          sk_now_seconds() - started);
   return h;
 
 fail_idx: cuvsCagraIndexDestroy(h->idx);
@@ -141,6 +173,49 @@ fail:
   fprintf(stderr, "[seekdb_cuvs] deserialize failed: %s\n", cuvsGetLastErrorText());
   free(index);
   return NULL;
+}
+
+/* Rebuild the host-side vector buffer from the dataset owned by the CAGRA
+ * index.  v3 snapshots do not store a second copy of the dataset; the graph
+ * snapshot already carries it (cuvsCagraSerialize(..., include_dataset=true)).
+ * This also keeps the seekdb-side fallback/update buffers populated after a
+ * restart without paying for a duplicated 128-256 MiB write at build time. */
+int seekdb_cuvs_copy_dataset(void* handle, float* out, long n, long dim)
+{
+  sk_cuvs_index* h = (sk_cuvs_index*)handle;
+  if (!h || !out || n <= 0 || dim <= 0 || n != h->n || dim != h->dim) return 1;
+  DLManagedTensor dataset;
+  memset(&dataset, 0, sizeof(dataset));
+  if (cuvsCagraIndexGetDataset(h->idx, &dataset) != CUVS_SUCCESS) { return 2; }
+  int rc = 0;
+  const DLTensor* t = &dataset.dl_tensor;
+  if (t->data == NULL || t->ndim != 2 || t->dtype.code != kDLFloat ||
+      t->dtype.bits != 32 || t->dtype.lanes != 1 || t->shape == NULL ||
+      t->shape[0] != n || t->shape[1] < dim ||
+      (t->strides != NULL && t->strides[1] != 1)) {
+    rc = 3;
+  } else {
+    const char* src = (const char*)t->data + t->byte_offset;
+    const int64_t row_stride = t->strides == NULL ? dim : t->strides[0];
+    if (row_stride < dim) {
+      rc = 4;
+    } else {
+#ifdef __HIP_PLATFORM_AMD__
+      const hipError_t copy_status =
+          hipMemcpy2D(out, sizeof(float)*dim, src, sizeof(float)*row_stride,
+                      sizeof(float)*dim, (size_t)n, hipMemcpyDeviceToHost);
+      if (copy_status != hipSuccess) { rc = 5; }
+#else
+      const cudaError_t copy_status =
+          cudaMemcpy2D(out, sizeof(float)*dim, src, sizeof(float)*row_stride,
+                       sizeof(float)*dim, (size_t)n, cudaMemcpyDeviceToHost);
+      if (copy_status != cudaSuccess) { rc = 5; }
+#endif
+    }
+  }
+  if (dataset.deleter != NULL) { dataset.deleter(&dataset); }
+  if (rc) { fprintf(stderr, "[seekdb_cuvs] copy dataset rc=%d: %s\n", rc, cuvsGetLastErrorText()); }
+  return rc;
 }
 
 int seekdb_cuvs_cagra_knn(const float* base, long n, long dim,
