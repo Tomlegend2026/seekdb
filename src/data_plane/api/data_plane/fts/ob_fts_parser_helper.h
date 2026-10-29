@@ -19,6 +19,7 @@
 
 #include "lib/allocator/ob_fifo_allocator.h"
 #include "lib/charset/ob_charset.h"
+#include "lib/lock/ob_mutex.h"
 #include "lib/string/ob_string.h"
 #include "object/ob_object.h"
 #include "data_plane/fts/ob_fts_parser.h"
@@ -39,6 +40,9 @@ namespace storage
 class ObStopWordChecker;
 class ObFTDictHub;
 class ObAddWord;
+class ObIFTDict;
+class ObFTCacheRangeContainer;
+class ObFTDictDesc;
 
 #define FTS_BUILD_IN_PARSER_LIST                                                                   \
   FT_PARSER_TYPE(FTP_SPACE, space)                                                                 \
@@ -119,16 +123,33 @@ public:
 public:
   ObStopWordChecker *stop_word_checker() const { return stop_word_checker_; }
   int get_dict_hub(ObFTDictHub *&hub);
+  // Process-wide, read-only IK dictionaries.  Loading the range cache and
+  // rebuilding ObFTRangeDict for every document/query is one of the dominant
+  // costs of the FTS hot path; the dictionaries never change for a tenant and
+  // are safe to share between parser instances.
+  int get_ik_dicts(ObIFTDict *&main_dict, ObIFTDict *&quan_dict, ObIFTDict *&stop_dict);
 
 private:
   int init_and_set_stopword_list();
   int init_dict_hub();
+  int init_ik_dicts();
+  int load_ik_dict(const ObFTDictDesc &desc, ObFTCacheRangeContainer &container);
+  void destroy_ik_dicts();
 
 private:
   ObStopWordChecker *     stop_word_checker_ = nullptr;
   ObFTDictHub *           dict_hub_          = nullptr;
   common::ObFIFOAllocator handler_allocator_;
   bool                    is_inited_         = false;
+
+  lib::ObMutex            ik_dict_mutex_;
+  ObIFTDict *             ik_main_dict_ = nullptr;
+  ObIFTDict *             ik_quan_dict_ = nullptr;
+  ObIFTDict *             ik_stop_dict_ = nullptr;
+  ObFTCacheRangeContainer *ik_main_container_ = nullptr;
+  ObFTCacheRangeContainer *ik_quan_container_ = nullptr;
+  ObFTCacheRangeContainer *ik_stop_container_ = nullptr;
+  bool                    ik_dict_inited_ = false;
 };
 
 class ObFTParseHelper final
