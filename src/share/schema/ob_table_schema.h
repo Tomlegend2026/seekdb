@@ -18,6 +18,7 @@
 #define OCEANBASE_SCHEMA_TABLE_SCHEMA
 
 #include <string.h>
+#include "share/schema/ob_ai_column_schema.h"
 #include "share/session/ob_local_session_var.h"
 #include "share/rc/ob_server_runtime.h"  // SERVER_ID
 #include <stdlib.h>
@@ -1072,6 +1073,8 @@ public:
   int set_parser_properties(const common::ObString &parser_properties) { return deep_copy_str(parser_properties, parser_properties_); }
   int set_rowkey_info(const ObColumnSchemaV2 &column);
   int set_foreign_key_infos(const common::ObIArray<ObForeignKeyInfo> &foreign_key_infos_);
+  int set_ai_column_infos(const common::ObIArray<ObAiColumnSchema> &infos);
+  const common::ObIArray<ObAiColumnSchema> &get_ai_column_infos() const { return ai_column_infos_; }
   void clear_foreign_key_infos();
   int set_trigger_list(const common::ObIArray<uint64_t> &trigger_list);
   int set_simple_index_infos(const common::ObIArray<ObAuxTableMetaInfo> &simple_index_infos);
@@ -1629,6 +1632,7 @@ protected:
   int64_t cst_array_capacity_;
   int64_t cst_cnt_;
   common::ObSArray<ObForeignKeyInfo> foreign_key_infos_;
+  common::ObSArray<ObAiColumnSchema> ai_column_infos_;
 
   // trigger
   common::ObSArray<uint64_t> trigger_list_;

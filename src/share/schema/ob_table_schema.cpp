@@ -1138,6 +1138,7 @@ ObTableSchema::ObTableSchema(ObIAllocator *allocator)
     partition_key_info_(allocator),
     subpartition_key_info_(allocator),
     foreign_key_infos_(SCHEMA_BIG_MALLOC_BLOCK_SIZE, ModulePageAllocator(*allocator)),
+    ai_column_infos_(SCHEMA_SMALL_MALLOC_BLOCK_SIZE, ModulePageAllocator(*allocator)),
     trigger_list_(SCHEMA_SMALL_MALLOC_BLOCK_SIZE, ModulePageAllocator(*allocator)),
     depend_mock_fk_parent_table_ids_(SCHEMA_SMALL_MALLOC_BLOCK_SIZE, ModulePageAllocator(*allocator)),
     name_generated_type_(GENERATED_TYPE_UNKNOWN),
@@ -1306,6 +1307,9 @@ int ObTableSchema::assign(const ObTableSchema &src_schema)
       if (OB_SUCC(ret)) {
         if (OB_FAIL(set_foreign_key_infos(src_schema.get_foreign_key_infos()))) {
         }
+      }
+      if (OB_SUCC(ret)) {
+        ret = set_ai_column_infos(src_schema.get_ai_column_infos());
       }
       if (OB_SUCC(ret)) {
         if (OB_FAIL(set_trigger_list(src_schema.get_trigger_list()))) {
@@ -2512,6 +2516,10 @@ int64_t ObTableSchema::get_convert_size() const
   }
 
   convert_size += foreign_key_infos_.get_data_size();
+  convert_size += ai_column_infos_.get_data_size();
+  for (int64_t i = 0; i < ai_column_infos_.count(); ++i) {
+    convert_size += ai_column_infos_.at(i).get_convert_size() - sizeof(ObAiColumnSchema);
+  }
   for (int64_t i = 0; i < foreign_key_infos_.count(); ++i) {
     convert_size += foreign_key_infos_.at(i).get_convert_size();
   }
@@ -2589,6 +2597,7 @@ void ObTableSchema::reset()
   cst_array_ = NULL;
   foreign_key_infos_.reset();
   simple_index_infos_.reset();
+  ai_column_infos_.reset();
   trigger_list_.reset();
   table_dop_ = 1;
   table_flags_ = 0;
@@ -5406,6 +5415,7 @@ OB_DEF_SERIALIZE(ObTableSchema)
   OB_UNIS_ENCODE(parser_properties_);
   OB_UNIS_ENCODE(semistruct_encoding_type_);
   OB_UNIS_ENCODE(micro_block_format_version_);
+  OB_UNIS_ENCODE(ai_column_infos_);
   // !!! end static check
   /*
    * Add deserialized members before this end static check comment
@@ -5609,6 +5619,7 @@ OB_DEF_DESERIALIZE(ObTableSchema)
   OB_UNIS_DECODE_AND_FUNC(parser_properties_, deep_copy_str);
   OB_UNIS_DECODE(semistruct_encoding_type_);
   OB_UNIS_DECODE(micro_block_format_version_);
+  OB_UNIS_DECODE(ai_column_infos_);
   // !!! end static check
   /*
    * Add deserialized members before this end static check comment
@@ -5719,6 +5730,7 @@ OB_DEF_SERIALIZE_SIZE(ObTableSchema)
   OB_UNIS_ADD_LEN(parser_properties_);
   OB_UNIS_ADD_LEN(semistruct_encoding_type_);
   OB_UNIS_ADD_LEN(micro_block_format_version_);
+  OB_UNIS_ADD_LEN(ai_column_infos_);
   // !!! end static check
   /*
    * Add deserialized members before this end static check comment
@@ -6280,6 +6292,42 @@ int ObTableSchema::set_simple_index_infos(
 void ObTableSchema::clear_foreign_key_infos()
 {
   foreign_key_infos_.reset();
+}
+
+int ObTableSchema::set_ai_column_infos(const ObIArray<ObAiColumnSchema> &infos)
+{
+  int ret = OB_SUCCESS;
+  if (&infos == &ai_column_infos_) { return ret; }
+  for (int64_t i = 0; i < infos.count(); ++i) {
+    const auto &definition = infos.at(i);
+    if (definition.get_column_id() == 0 || definition.get_column_id() == OB_INVALID_ID) {
+      return OB_INVALID_ARGUMENT;
+    }
+    for (int64_t j = 0; j < i; ++j) {
+      if (infos.at(j).get_column_id() == definition.get_column_id()) {
+        return OB_INVALID_ARGUMENT;
+      }
+    }
+    const auto &dependencies = definition.get_dependency_column_ids();
+    for (int64_t d = 0; d < dependencies.count(); ++d) {
+      for (int64_t j = 0; j < infos.count(); ++j) {
+        if (dependencies.at(d) == infos.at(j).get_column_id()) {
+          return OB_INVALID_ARGUMENT; // AI-to-AI dependencies are unsupported.
+        }
+      }
+    }
+  }
+  ai_column_infos_.reset();
+  if (OB_FAIL(ai_column_infos_.prepare_allocate(infos.count()))) {
+  } else {
+    for (int64_t i = 0; OB_SUCC(ret) && i < infos.count(); ++i) {
+      auto &definition = ai_column_infos_.at(i);
+      definition.~ObAiColumnSchema();
+      new (&definition) ObAiColumnSchema(get_allocator());
+      ret = definition.assign(infos.at(i));
+    }
+  }
+  return ret;
 }
 
 int ObTableSchema::set_foreign_key_infos(const ObIArray<ObForeignKeyInfo> &foreign_key_infos)

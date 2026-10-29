@@ -25,22 +25,68 @@ namespace share
 namespace schema
 {
 
-OB_SERIALIZE_MEMBER(ObAiColumnSchema,
-                    table_id_,
-                    column_id_,
-                    column_name_,
-                    ai_model_name_,
-                    ai_func_type_,
-                    normalized_expr_,
-                    max_retries_,
-                    sync_mode_,
-                    definition_version_,
-                    state_column_id_,
-                    request_column_id_,
-                    result_spec_column_id_,
-                    result_type_,
-                    result_dimension_,
-                    dependency_column_ids_);
+OB_DEF_SERIALIZE(ObAiColumnSchema)
+{
+  int ret = OB_SUCCESS;
+  OB_UNIS_ENCODE(table_id_);
+  OB_UNIS_ENCODE(column_id_);
+  OB_UNIS_ENCODE(column_name_);
+  OB_UNIS_ENCODE(ai_model_name_);
+  OB_UNIS_ENCODE(ai_func_type_);
+  OB_UNIS_ENCODE(normalized_expr_);
+  OB_UNIS_ENCODE(max_retries_);
+  OB_UNIS_ENCODE(sync_mode_);
+  OB_UNIS_ENCODE(definition_version_);
+  OB_UNIS_ENCODE(state_column_id_);
+  OB_UNIS_ENCODE(request_column_id_);
+  OB_UNIS_ENCODE(result_spec_column_id_);
+  OB_UNIS_ENCODE(result_type_);
+  OB_UNIS_ENCODE(result_dimension_);
+  OB_UNIS_ENCODE(dependency_column_ids_);
+  return ret;
+}
+
+OB_DEF_DESERIALIZE(ObAiColumnSchema)
+{
+  int ret = OB_SUCCESS;
+  OB_UNIS_DECODE(table_id_);
+  OB_UNIS_DECODE(column_id_);
+  OB_UNIS_DECODE_AND_FUNC(column_name_, deep_copy_str);
+  OB_UNIS_DECODE_AND_FUNC(ai_model_name_, deep_copy_str);
+  OB_UNIS_DECODE(ai_func_type_);
+  OB_UNIS_DECODE_AND_FUNC(normalized_expr_, deep_copy_str);
+  OB_UNIS_DECODE(max_retries_);
+  OB_UNIS_DECODE_AND_FUNC(sync_mode_, deep_copy_str);
+  OB_UNIS_DECODE(definition_version_);
+  OB_UNIS_DECODE(state_column_id_);
+  OB_UNIS_DECODE(request_column_id_);
+  OB_UNIS_DECODE(result_spec_column_id_);
+  OB_UNIS_DECODE(result_type_);
+  OB_UNIS_DECODE(result_dimension_);
+  OB_UNIS_DECODE(dependency_column_ids_);
+  return ret;
+}
+
+OB_DEF_SERIALIZE_SIZE(ObAiColumnSchema)
+{
+  int64_t len = 0;
+  OB_UNIS_ADD_LEN(table_id_);
+  OB_UNIS_ADD_LEN(column_id_);
+  OB_UNIS_ADD_LEN(column_name_);
+  OB_UNIS_ADD_LEN(ai_model_name_);
+  OB_UNIS_ADD_LEN(ai_func_type_);
+  OB_UNIS_ADD_LEN(normalized_expr_);
+  OB_UNIS_ADD_LEN(max_retries_);
+  OB_UNIS_ADD_LEN(sync_mode_);
+  OB_UNIS_ADD_LEN(definition_version_);
+  OB_UNIS_ADD_LEN(state_column_id_);
+  OB_UNIS_ADD_LEN(request_column_id_);
+  OB_UNIS_ADD_LEN(result_spec_column_id_);
+  OB_UNIS_ADD_LEN(result_type_);
+  OB_UNIS_ADD_LEN(result_dimension_);
+  OB_UNIS_ADD_LEN(dependency_column_ids_);
+  return len;
+}
 
 int64_t ObAiColumnSchema::get_convert_size() const
 {

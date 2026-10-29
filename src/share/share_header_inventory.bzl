@@ -254,6 +254,7 @@ SHARE_PUBLIC_HEADER_ROOTS = [
 ]
 
 SHARE_INTERFACE_CLOSURE_HEADERS = [
+    "schema/ob_ai_column_schema.h",
     "ai_service/ob_ai_model_info.h",
     "cache/ob_cache_utils.h",
     "cache/ob_kvcache_hazard_domain.h",
@@ -334,7 +335,6 @@ SHARE_INTERFACE_CLOSURE_HEADERS = [
 ]
 
 SHARE_PRIVATE_HEADERS = [
-    "schema/ob_ai_column_schema.h",
     "datum/ob_datum_funcs_compilation/ob_datum_funcs_compilation.ipp",
     "datum/ob_datum_funcs_impl.h",
     "datum/ob_str_datum_funcs_compilation/ob_str_datum_funcs_compilation.ipp",
