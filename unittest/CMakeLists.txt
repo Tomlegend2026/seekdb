@@ -8,6 +8,13 @@ target_link_libraries(ai_function_regression PRIVATE
   oceanbase ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)
 add_test(NAME ai_function_regression COMMAND ai_function_regression)
 
+add_executable(ai_column_schema_regression
+  share/schema/test_ai_column_schema.cpp
+  ${PROJECT_SOURCE_DIR}/src/share/schema/ob_ai_column_schema.cpp)
+target_link_libraries(ai_column_schema_regression PRIVATE
+  oceanbase ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)
+add_test(NAME ai_column_schema_regression COMMAND ai_column_schema_regression)
+
 add_executable(fts_word_regression storage/test_fts_word_regression.cpp)
 target_link_libraries(fts_word_regression PRIVATE
   oceanbase ${SEEKDB_REGRESSION_GTEST_MAIN} ${SEEKDB_REGRESSION_GTEST} Threads::Threads)

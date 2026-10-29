@@ -1,6 +1,8 @@
 """Native public/private header ownership for the Share module."""
 
 SHARE_PUBLIC_HEADER_ROOTS = [
+    "ob_tenant_role_transition_service.h",
+    "resource/ob_server_resource.h",
     "aggregate/ob_pushdown_aggregate_protocol.h",
     "ai_service/ob_ai_service_struct.h",
     "allocator/ob_reserve_arena.h",
@@ -307,7 +309,6 @@ SHARE_INTERFACE_CLOSURE_HEADERS = [
     "redolog/ob_log_definition.h",
     "redolog/ob_log_file_group.h",
     "redolog/ob_log_policy.h",
-    "resource/ob_server_resource.h",
     "resource_limit_calculator/ob_resource_commmon.h",
     "resource_limit_calculator/ob_resource_limit_calculator_def.h",
     "schema/ob_ai_model_mgr.h",
@@ -333,6 +334,7 @@ SHARE_INTERFACE_CLOSURE_HEADERS = [
 ]
 
 SHARE_PRIVATE_HEADERS = [
+    "schema/ob_ai_column_schema.h",
     "datum/ob_datum_funcs_compilation/ob_datum_funcs_compilation.ipp",
     "datum/ob_datum_funcs_impl.h",
     "datum/ob_str_datum_funcs_compilation/ob_str_datum_funcs_compilation.ipp",

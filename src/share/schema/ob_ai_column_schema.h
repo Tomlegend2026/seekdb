@@ -61,10 +61,16 @@ public:
     result_spec_column_id_ = OB_INVALID_ID;
     result_type_ = 0;
     result_dimension_ = 0;
+    dependency_column_ids_.reset();
   }
 
   int assign(const ObAiColumnSchema &other);
   int64_t get_convert_size() const override;
+  int add_dependency_column_id(uint64_t id);
+  int remap_column_ids(const common::ObIArray<uint64_t> &from,
+                       const common::ObIArray<uint64_t> &to);
+  const common::ObIArray<uint64_t> &get_dependency_column_ids() const
+  { return dependency_column_ids_; }
 
   OB_INLINE uint64_t get_table_id() const { return table_id_; }
   OB_INLINE uint64_t get_column_id() const { return column_id_; }
@@ -116,6 +122,7 @@ private:
   uint64_t result_spec_column_id_;
   int64_t result_type_;
   int64_t result_dimension_;
+  common::ObSEArray<uint64_t, 4> dependency_column_ids_;
 };
 
 } // namespace schema
