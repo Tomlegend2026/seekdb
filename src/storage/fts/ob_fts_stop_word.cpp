@@ -15,6 +15,7 @@
  */
 
 #include "object/ob_object.h"
+#include <cstdint>
 #define USING_LOG_PREFIX STORAGE_FTS
 
 #include "share/rc/ob_server_runtime.h"
@@ -158,11 +159,67 @@ bool ObAddWord::is_min_max_word(const int64_t c_len) const
   return flag_.min_max_word() && (c_len < min_token_size_ || c_len > max_token_size_);
 }
 
+// Case folding always allocates a new string, even when the token has no
+// cased characters at all.  Chinese tokens dominate the benchmark and every
+// one of them currently pays for a copy in ObCharset::tolower.  Accept the
+// source pointer directly when the token consists only of ASCII (without
+// A-Z) and uncased CJK/Hangul/Kana code points.
+static bool is_ascii_or_uncased_cjk(const char *str, const int64_t len)
+{
+  bool result = true;
+  int64_t i = 0;
+  while (result && i < len) {
+    const uint8_t c = static_cast<uint8_t>(str[i]);
+    if (c < 0x80) {
+      if (c >= 'A' && c <= 'Z') {
+        result = false;
+      } else {
+        ++i;
+      }
+    } else if ((c & 0xE0) == 0xC0 && i + 1 < len) {
+      // Latin-1/Greek/Cyrillic/Arabic/etc.  These scripts can be cased.
+      result = false;
+    } else if ((c & 0xF0) == 0xE0 && i + 2 < len) {
+      const uint32_t cp = ((static_cast<uint32_t>(c) & 0x0F) << 12)
+                        | ((static_cast<uint32_t>(str[i + 1]) & 0x3F) << 6)
+                        | (static_cast<uint32_t>(str[i + 2]) & 0x3F);
+      if (!((cp >= 0x3000 && cp <= 0x30FF)
+            || (cp >= 0x3400 && cp <= 0x4DBF)
+            || (cp >= 0x4E00 && cp <= 0x9FFF)
+            || (cp >= 0xAC00 && cp <= 0xD7AF)
+            || (cp >= 0xF900 && cp <= 0xFAFF)
+            || (cp >= 0xFF01 && cp <= 0xFF20)
+            || (cp >= 0xFF3B && cp <= 0xFF40)
+            || (cp >= 0xFF5B && cp <= 0xFF65))) {
+        result = false;
+      } else {
+        i += 3;
+      }
+    } else if ((c & 0xF8) == 0xF0 && i + 3 < len) {
+      const uint32_t cp = ((static_cast<uint32_t>(c) & 0x07) << 18)
+                        | ((static_cast<uint32_t>(str[i + 1]) & 0x3F) << 12)
+                        | ((static_cast<uint32_t>(str[i + 2]) & 0x3F) << 6)
+                        | (static_cast<uint32_t>(str[i + 3]) & 0x3F);
+      if (cp < 0x20000 || cp > 0x2FA1F) {
+        result = false;
+      } else {
+        i += 4;
+      }
+    } else {
+      result = false;
+    }
+  }
+  return result;
+}
+
 int ObAddWord::casedown_word(const ObFTWord &src, ObFTWord &dst)
 {
   int ret = OB_SUCCESS;
   if (OB_UNLIKELY(src.empty())) {
     ret = OB_INVALID_ARGUMENT;
+  } else if (flag_.casedown()
+             && is_ascii_or_uncased_cjk(src.get_word().ptr_, src.get_word().len_)) {
+    dst = src;
   } else if (flag_.casedown()) {
     ObString dst_str;
     if (OB_FAIL(ObCharset::tolower(
