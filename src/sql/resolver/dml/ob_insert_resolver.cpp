@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "sql/resolver/dml/ob_insert_resolver.h"
+#include "share/schema/ob_ai_column_schema.h"
 #include "sql/resolver/dml/ob_select_resolver.h"
 #include "sql/rewrite/ob_transform_utils.h"
 #include "ob_default_value_utils.h"
@@ -119,9 +120,29 @@ int ObInsertResolver::resolve_insert_clause(const ParseNode &node)
       OB_ISNULL(values_node = node.children_[VALUE_NODE])) {
     ret = OB_ERR_UNEXPECTED;
   } else if (OB_FAIL(resolve_insert_field(*insert_into, table_item))) {
-  } else if (OB_FAIL(resolve_values(*values_node,
-                                    table_item, node.children_[DUPLICATE_NODE]))) {
-  } else {
+  }
+  if (OB_SUCC(ret) && table_item->is_basic_table()
+      && !(session_info_->is_inner() && !session_info_->is_user_session())) {
+    const ObTableSchema *schema = nullptr;
+    OZ(schema_checker_->get_table_schema(table_item->ref_id_, schema));
+    if (OB_SUCC(ret) && nullptr == schema) { ret = OB_ERR_UNEXPECTED; }
+    if (OB_SUCC(ret) && schema->has_ai_columns()) {
+      const auto &definitions = schema->get_ai_column_infos();
+      const auto &targets = insert_stmt->get_values_desc();
+      for (int64_t i = 0; OB_SUCC(ret) && i < targets.count(); ++i) {
+        for (int64_t j = 0; OB_SUCC(ret) && j < definitions.count(); ++j) {
+          if (targets.at(i)->get_column_id() == definitions.at(j).get_column_id()) {
+            ret = OB_NOT_SUPPORTED;
+            LOG_USER_ERROR(OB_NOT_SUPPORTED, "assigning an AI result column");
+          }
+        }
+      }
+    }
+  }
+  if (OB_SUCC(ret)) {
+    ret = resolve_values(*values_node, table_item, node.children_[DUPLICATE_NODE]);
+  }
+  if (OB_SUCC(ret)) {
     if (!insert_stmt->get_table_items().empty() &&
         NULL != insert_stmt->get_table_item(0) &&
         (insert_stmt->get_table_item(0)->is_generated_table() ||

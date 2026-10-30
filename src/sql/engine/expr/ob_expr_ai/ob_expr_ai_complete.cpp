@@ -48,7 +48,9 @@ int ObExprAIComplete::calc_result_typeN(ObExprResType &type,
 
   UNUSED(type_ctx);
   int ret = OB_SUCCESS;
-  if (OB_UNLIKELY(param_num < 2 || param_num > 3)) {
+  const ObSQLSessionInfo *session = type_ctx.get_session();
+  const bool column_call = nullptr != session && session->is_inner() && !session->is_user_session();
+  if (OB_UNLIKELY(param_num < 2 || param_num > (column_call ? 4 : 3))) {
     ObString func_name_(get_name());
     ret = OB_ERR_PARAM_SIZE;
     LOG_USER_ERROR(OB_ERR_PARAM_SIZE, func_name_.length(), func_name_.ptr());
@@ -63,7 +65,7 @@ int ObExprAIComplete::calc_result_typeN(ObExprResType &type,
     }
 
     if (OB_FAIL(ret)) {
-    } else if (param_num == 3) {
+    } else if (param_num >= 3) {
       ObObjType in_type = types_stack[CONFIG_IDX].get_type();
       if (OB_FAIL(ObJsonExprHelper::is_valid_for_json(types_stack, CONFIG_IDX, N_AI_COMPLETE))) {
       } else if (ob_is_string_type(in_type) && types_stack[CONFIG_IDX].get_collation_type() != CS_TYPE_BINARY) {
@@ -71,6 +73,10 @@ int ObExprAIComplete::calc_result_typeN(ObExprResType &type,
           types_stack[CONFIG_IDX].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
         }
       }
+    }
+    if (param_num == 4) {
+      types_stack[3].set_calc_type(ObVarcharType);
+      types_stack[3].set_calc_collation_type(CS_TYPE_UTF8MB4_BIN);
     }
     if (OB_SUCC(ret)) {
       type.set_type(ObLongTextType);
@@ -90,7 +96,11 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
   ObDatum *arg_model_id = nullptr;
   ObDatum *arg_prompt = nullptr;
   ObDatum *arg_config = nullptr;
-  if (OB_FAIL(expr.eval_param_value(ctx, arg_model_id, arg_prompt, arg_config))) {
+  ObDatum *arg_hint = nullptr;
+  // The result-type instruction travels inside the config object; the fourth
+  // SQL argument slot stays unused but must still be evaluated.
+  UNUSED(arg_hint);
+  if (OB_FAIL(expr.eval_param_value(ctx, arg_model_id, arg_prompt, arg_config, arg_hint))) {
   } else if (arg_model_id->is_null() || arg_prompt->is_null()) {
     ret = OB_INVALID_ARGUMENT;
     LOG_USER_ERROR(OB_INVALID_ARGUMENT, "ai_complete, parameters is null");
@@ -128,6 +138,7 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
     } else if (OB_FAIL(ObTextStringHelper::read_real_string_data(ctx.exec_ctx_, temp_allocator, *arg_prompt, expr.args_[1]->datum_meta_, expr.args_[1]->obj_meta_.has_lob_header(), prompt))) {
     }
 
+    ObString system_hint;
     if (OB_FAIL(ret)) {
     } else if (OB_NOT_NULL(arg_config) && !arg_config->is_null()) {
       ObIJsonBase *json_config = nullptr;
@@ -137,6 +148,19 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
         ret = OB_INVALID_ARGUMENT;
       } else {
         config = static_cast<ObJsonObject *>(json_config);
+        // ai_complete accepts only two or three SQL arguments, so the AI column
+        // DDL carries the result-type instruction as a reserved "type_hint"
+        // entry of the config object.  Lift it into the provider request's
+        // system prompt and strip it so it never reaches the provider body.
+        ObJsonNode *hint_node = config->get_value("type_hint");
+        if (OB_NOT_NULL(hint_node)) {
+          if (hint_node->json_type() == ObJsonNodeType::J_STRING) {
+            system_hint = static_cast<ObJsonString *>(hint_node)->get_str();
+          }
+          if (OB_FAIL(config->remove("type_hint"))) {
+            LOG_WARN_RET(ret, "failed to remove type_hint from ai_complete config", K(ret));
+          }
+        }
       }
     }
 
@@ -156,7 +180,7 @@ int ObExprAIComplete::eval_ai_complete(const ObExpr &expr,
     } else {
       ObAIFuncModel model(temp_allocator, *info, *endpoint_info);
       ObString result;
-      if (OB_FAIL(model.call_completion(prompt, config, result))) {
+      if (OB_FAIL(model.call_completion(prompt, config, result, system_hint))) {
       } else if (OB_FAIL(ObAIFuncUtils::set_string_result(expr, ctx, res, result))) {
       }
     }

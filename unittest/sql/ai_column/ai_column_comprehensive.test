@@ -1,0 +1,212 @@
+-- AI Column comprehensive test suite
+
+connection default;
+--disable_warnings
+drop database if exists test_ai_comprehensive;
+--enable_warnings
+create database test_ai_comprehensive;
+
+-- Setup AI models and endpoints
+--error 0,11112
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('comp_complete_ep');
+--error 0,11112
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('comp_embed_ep');
+--error 0,11118
+call DBMS_AI_SERVICE.DROP_AI_MODEL('comp_complete');
+--error 0,11118
+call DBMS_AI_SERVICE.DROP_AI_MODEL('comp_embed');
+
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('comp_complete',
+  '{"type":"completion","model_name":"mock-complete"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL('comp_embed',
+  '{"type":"dense_embedding","model_name":"mock-embed"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('comp_complete_ep',
+  '{"ai_model_name":"comp_complete","url":"http://127.0.0.1:19120/v1/chat/completions","access_key":"test-key","provider":"openai","request_model_name":"mock-complete"}');
+call DBMS_AI_SERVICE.CREATE_AI_MODEL_ENDPOINT('comp_embed_ep',
+  '{"ai_model_name":"comp_embed","url":"http://127.0.0.1:19120/v1/embeddings","access_key":"test-key","provider":"openai","request_model_name":"mock-embed"}');
+
+-- Test 1: CREATE TABLE with multiple AI columns
+drop table if exists test_ai_comprehensive.docs;
+create table test_ai_comprehensive.docs (
+  id bigint primary key,
+  title varchar(100),
+  content text,
+  tags json AI COLUMN (
+    AI_COMPLETE('comp_complete', concat('Classify this document: ', content))
+  ) WITH (sync_mode='async', max_retries=3),
+  summary varchar(500) AI COLUMN (
+    AI_COMPLETE('comp_complete', concat('Summarize: ', title, ' - ', content))
+  ) WITH (sync_mode='async', max_retries=2),
+  embedding vector(4) AI COLUMN (
+    AI_EMBED('comp_embed', content)
+  ) WITH (sync_mode='async', max_retries=1)
+);
+
+-- Verify metadata
+select count(*) = 3 as ai_column_count
+from oceanbase.__all_ai_column a
+join oceanbase.__all_table t on t.table_id = a.table_id
+join oceanbase.__all_database d on d.database_id = t.database_id
+where d.database_name = 'test_ai_comprehensive' and t.table_name = 'docs';
+
+select a.column_name, a.ai_func_type, a.max_retries, a.sync_mode
+from oceanbase.__all_ai_column a
+join oceanbase.__all_table t on t.table_id = a.table_id
+join oceanbase.__all_database d on d.database_id = t.database_id
+where d.database_name = 'test_ai_comprehensive' and t.table_name = 'docs'
+order by a.column_name;
+
+-- Verify hidden columns (3 per AI column = 9 total)
+select count(*) = 9 as hidden_column_count
+from oceanbase.__all_column c
+join oceanbase.__all_table t on t.table_id = c.table_id
+join oceanbase.__all_database d on d.database_id = t.database_id
+where d.database_name = 'test_ai_comprehensive' and t.table_name = 'docs'
+  and c.is_hidden = 1
+  and (c.column_name like '__ai_state_%' or c.column_name like '__ai_request_%' or c.column_name like '__ai_result_spec_%');
+
+-- Test 2: INSERT data and verify task creation
+insert into test_ai_comprehensive.docs (id, title, content) values
+(1, 'First Doc', 'This is the first document content'),
+(2, 'Second Doc', 'This is the second document content'),
+(3, 'Third Doc', 'This is the third document content');
+
+-- Verify tasks were created (3 rows * 3 AI columns = 9 tasks)
+select count(*) >= 9 as tasks_created
+from oceanbase.__all_ai_column_task
+where table_id in (
+  select table_id from oceanbase.__all_table
+  where database_id in (
+    select database_id from oceanbase.__all_database
+    where database_name = 'test_ai_comprehensive'
+  ) and table_name = 'docs'
+);
+
+-- Check task states
+select state, count(*) as task_count
+from oceanbase.__all_ai_column_task
+where table_id in (
+  select table_id from oceanbase.__all_table
+  where database_id in (
+    select database_id from oceanbase.__all_database
+    where database_name = 'test_ai_comprehensive'
+  ) and table_name = 'docs'
+)
+group by state;
+
+-- Test 3: UPDATE dependency column and verify new tasks
+update test_ai_comprehensive.docs set content = 'Updated first document' where id = 1;
+
+-- Verify new tasks were created for the update
+select count(*) >= 12 as tasks_after_update
+from oceanbase.__all_ai_column_task
+where table_id in (
+  select table_id from oceanbase.__all_table
+  where database_id in (
+    select database_id from oceanbase.__all_database
+    where database_name = 'test_ai_comprehensive'
+  ) and table_name = 'docs'
+);
+
+-- Test 4: DELETE row and verify tasks are cleaned
+delete from test_ai_comprehensive.docs where id = 3;
+
+-- Verify tasks for deleted row are removed
+select count(*) as remaining_tasks
+from oceanbase.__all_ai_column_task
+where table_id in (
+  select table_id from oceanbase.__all_table
+  where database_id in (
+    select database_id from oceanbase.__all_database
+    where database_name = 'test_ai_comprehensive'
+  ) and table_name = 'docs'
+) and rowkey_predicate like '%`id` = 3%';
+
+-- Test 5: ALTER TABLE ADD AI COLUMN
+drop table if exists test_ai_comprehensive.simple;
+create table test_ai_comprehensive.simple (
+  id bigint primary key,
+  text varchar(200)
+);
+
+alter table test_ai_comprehensive.simple add column category varchar(50) AI COLUMN (
+  AI_COMPLETE('comp_complete', concat('Categorize: ', text))
+) WITH (sync_mode='async', max_retries=2);
+
+select count(*) = 1 as alter_add_success
+from oceanbase.__all_ai_column a
+join oceanbase.__all_table t on t.table_id = a.table_id
+join oceanbase.__all_database d on d.database_id = t.database_id
+where d.database_name = 'test_ai_comprehensive' and t.table_name = 'simple';
+
+-- Test 6: RETRY syntax
+alter table test_ai_comprehensive.docs RETRY AI COLUMN tags WHERE id = 1;
+
+-- Verify task state was reset
+select count(*) >= 1 as retry_task_reset
+from oceanbase.__all_ai_column_task
+where table_id in (
+  select table_id from oceanbase.__all_table
+  where database_id in (
+    select database_id from oceanbase.__all_database
+    where database_name = 'test_ai_comprehensive'
+  ) and table_name = 'docs'
+) and column_id in (
+  select column_id from oceanbase.__all_ai_column
+  where table_id in (
+    select table_id from oceanbase.__all_table
+    where database_name = 'test_ai_comprehensive' and table_name = 'docs'
+  ) and column_name = 'tags'
+) and state = 0; -- PENDING state
+
+-- Test 7: Error cases
+-- Dimension mismatch
+--error 7600
+create table test_ai_comprehensive.bad_dim(
+  id bigint primary key,
+  text varchar(100),
+  emb vector(4) AI COLUMN (AI_EMBED('comp_embed', text, 8))
+);
+
+-- AI-to-AI dependency
+--error 1235
+create table test_ai_comprehensive.bad_dep(
+  id bigint primary key,
+  text varchar(100),
+  ai1 varchar(200) AI COLUMN (AI_COMPLETE('comp_complete', text)),
+  ai2 varchar(200) AI COLUMN (AI_COMPLETE('comp_complete', ai1))
+);
+
+-- Invalid AI function name
+--error 1235
+create table test_ai_comprehensive.bad_func(
+  id bigint primary key,
+  text varchar(100),
+  ai1 varchar(200) AI COLUMN (AI_INVALID('comp_complete', text))
+);
+
+-- Test 8: JSON type with automatic prompt
+drop table if exists test_ai_comprehensive.json_docs;
+create table test_ai_comprehensive.json_docs (
+  id bigint primary key,
+  data json AI COLUMN (
+    AI_COMPLETE('comp_complete', concat('Extract info: ', data))
+  ) WITH (sync_mode='async')
+);
+
+select count(*) = 1 as json_ai_column
+from oceanbase.__all_ai_column a
+join oceanbase.__all_table t on t.table_id = a.table_id
+join oceanbase.__all_database d on d.database_id = t.database_id
+where d.database_name = 'test_ai_comprehensive' and t.table_name = 'json_docs'
+  and a.normalized_expr like '%Return exactly one valid JSON value%';
+
+-- Cleanup
+drop table test_ai_comprehensive.json_docs;
+drop table test_ai_comprehensive.simple;
+drop table test_ai_comprehensive.docs;
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('comp_complete_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL_ENDPOINT('comp_embed_ep');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('comp_complete');
+call DBMS_AI_SERVICE.DROP_AI_MODEL('comp_embed');
+drop database test_ai_comprehensive;

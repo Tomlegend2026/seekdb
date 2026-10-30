@@ -542,6 +542,26 @@ protected:
   int resolve_normal_column_attribute_foreign_key(ObColumnSchemaV2 &column,
                                                   ParseNode *attrs_node,
                                                   ObCreateTableStmt *create_table_stmt);
+  int resolve_ai_column_attribute(share::schema::ObColumnSchemaV2 &column,
+                                  ParseNode *attr_node,
+                                  share::schema::ObTableSchema &tbl_schema);
+  int resolve_ai_column_attribute(share::schema::ObColumnSchemaV2 &column,
+                                  ParseNode *attr_node,
+                                  ObCreateTableStmt *create_table_stmt);
+  int parse_ai_function_expr(const ParseNode *expr_node,
+                             int64_t &ai_func_type,
+                             common::ObString &model_name,
+                             common::ObIArray<common::ObString> &dep_column_names,
+                             int64_t &embed_dimension);
+  int parse_ai_column_options(const ParseNode *options_node,
+                              common::ObString &sync_mode,
+                              int64_t &max_retries);
+  int create_ai_hidden_columns(share::schema::ObTableSchema &tbl_schema,
+                               const share::schema::ObColumnSchemaV2 &ai_column,
+                               uint64_t &state_col_id,
+                               uint64_t &request_col_id,
+                               uint64_t &result_spec_col_id);
+  int resolve_retry_ai_column(const ParseNode *retry_node);
   int resolve_generated_column_attribute(share::schema::ObColumnSchemaV2 &column,
                                          ParseNode *attrs_node,
                                          ObColumnResolveStat &reslove_stat);

@@ -34,6 +34,8 @@
 #include "sql/engine/ob_batch_rows.h"
 #include "sql/engine/ob_physical_plan.h"
 #include "query/vector/ob_vector_index_util.h"
+#include "share/schema/ob_ai_column_schema.h"
+#include "sql/engine/dml/ob_ai_column_helper.h"
 namespace oceanbase
 {
 using namespace common;
@@ -631,6 +633,28 @@ int ObDMLService::process_insert_row(const ObInsCtDef &ins_ctdef,
     } else if (OB_FAIL(check_filter_row(ins_ctdef, dml_op.get_eval_ctx(), is_skipped))) {
     }
 
+    // AI Column: Create tasks for inserted rows
+    if (OB_SUCC(ret) && !is_skipped) {
+      ObSchemaGetterGuard *schema_guard = nullptr == dml_op.get_exec_ctx().get_sql_ctx() ? nullptr : dml_op.get_exec_ctx().get_sql_ctx()->schema_guard_;
+      const share::schema::ObTableSchema *table_schema = nullptr;
+      if (OB_ISNULL(schema_guard)) {
+        // Schema guard not available, skip AI column processing
+      } else if (OB_FAIL(schema_guard->get_table_schema(ref_table_id, table_schema))) {
+        LOG_WARN("failed to get table schema for AI column check", K(ret), K(ref_table_id));
+      } else if (OB_NOT_NULL(table_schema) && table_schema->has_ai_columns()) {
+        // Extract rowkey values and create AI column tasks
+        ObSEArray<common::ObString, 4> rowkey_values;
+        if (OB_FAIL(ObAiColumnHelper::extract_rowkey_values(
+            ins_ctdef.new_row_, ins_ctdef.das_base_ctdef_.rowkey_cnt_,
+            eval_ctx, rowkey_values))) {
+          LOG_WARN("failed to extract rowkey values for AI column", K(ret));
+        } else if (OB_FAIL(ObAiColumnHelper::create_tasks_for_insert(
+            dml_op, *table_schema, rowkey_values, ins_ctdef))) {
+          LOG_WARN("failed to create AI column tasks", K(ret));
+        }
+      }
+    }
+
   }
   return ret;
 }
@@ -729,6 +753,28 @@ int ObDMLService::process_delete_row(const ObDelCtDef &del_ctdef,
       } else if (OB_FAIL(TriggerHandle::do_handle_before_row(
           dml_op, del_ctdef.das_base_ctdef_, del_ctdef.trig_ctdef_, del_rtdef.trig_rtdef_))) {
       }
+
+      // AI Column: Delete tasks for deleted rows
+      if (OB_SUCC(ret)) {
+        ObSchemaGetterGuard *schema_guard = nullptr == dml_op.get_exec_ctx().get_sql_ctx() ? nullptr : dml_op.get_exec_ctx().get_sql_ctx()->schema_guard_;
+        const share::schema::ObTableSchema *table_schema = nullptr;
+        if (OB_ISNULL(schema_guard)) {
+          // Schema guard not available, skip AI column processing
+        } else if (OB_FAIL(schema_guard->get_table_schema(ref_table_id, table_schema))) {
+          LOG_WARN("failed to get table schema for AI column check", K(ret), K(ref_table_id));
+        } else if (OB_NOT_NULL(table_schema) && table_schema->has_ai_columns()) {
+          // Extract rowkey values from old_row
+          ObSEArray<common::ObString, 4> rowkey_values;
+          if (OB_FAIL(ObAiColumnHelper::extract_rowkey_values(
+              del_ctdef.old_row_, del_ctdef.das_ctdef_.rowkey_cnt_,
+              dml_op.get_eval_ctx(), rowkey_values))) {
+            LOG_WARN("failed to extract rowkey values for AI column", K(ret));
+          } else if (OB_FAIL(ObAiColumnHelper::delete_tasks_for_delete(
+              dml_op, *table_schema, rowkey_values))) {
+            LOG_WARN("failed to delete AI column tasks", K(ret));
+          }
+        }
+      }
     }
     LOG_DEBUG("process delete row", K(ret), K(is_skipped),
                "old_row", ROWEXPR2STR(dml_op.get_eval_ctx(), del_ctdef.old_row_));
@@ -813,6 +859,47 @@ int ObDMLService::process_update_row(const ObUpdCtDef &upd_ctdef,
           LOG_USER_WARN(OB_ERR_CHECK_CONSTRAINT_VIOLATED);
         } else {
           ret = OB_ERR_CHECK_CONSTRAINT_VIOLATED;
+        }
+      }
+
+      // AI Column: Create tasks for updated rows if dependency columns changed
+      if (OB_SUCC(ret) && !is_skipped && upd_rtdef.is_row_changed_) {
+        ObSchemaGetterGuard *schema_guard = nullptr == dml_op.get_exec_ctx().get_sql_ctx() ? nullptr : dml_op.get_exec_ctx().get_sql_ctx()->schema_guard_;
+        const share::schema::ObTableSchema *table_schema = nullptr;
+        if (OB_ISNULL(schema_guard)) {
+          // Schema guard not available, skip AI column processing
+        } else if (OB_FAIL(schema_guard->get_table_schema(ref_table_id, table_schema))) {
+          LOG_WARN("failed to get table schema for AI column check", K(ret), K(ref_table_id));
+        } else if (OB_NOT_NULL(table_schema) && table_schema->has_ai_columns()) {
+          // Extract rowkey values from new_row
+          ObSEArray<common::ObString, 4> rowkey_values;
+          if (OB_FAIL(ObAiColumnHelper::extract_rowkey_values(
+              upd_ctdef.new_row_, upd_ctdef.dupd_ctdef_.rowkey_cnt_,
+              dml_op.get_eval_ctx(), rowkey_values))) {
+            LOG_WARN("failed to extract rowkey values for AI column", K(ret));
+          } else {
+            // Get updated column IDs
+            ObSEArray<uint64_t, 16> updated_column_ids;
+            for (int64_t i = 0; i < upd_ctdef.assign_columns_.count(); ++i) {
+              const uint64_t index = upd_ctdef.assign_columns_.at(i).projector_index_;
+              if (index >= static_cast<uint64_t>(upd_ctdef.column_ids_.count())) {
+                ret = OB_ERR_UNEXPECTED;
+              } else {
+                ObDatum *old_value = nullptr, *new_value = nullptr;
+                OZ(upd_ctdef.old_row_.at(index)->eval(dml_op.get_eval_ctx(), old_value));
+                OZ(upd_ctdef.new_row_.at(index)->eval(dml_op.get_eval_ctx(), new_value));
+                if (OB_SUCC(ret) && !ObDatum::binary_equal(*old_value, *new_value)) {
+                  OZ(updated_column_ids.push_back(upd_ctdef.column_ids_.at(index)));
+                }
+              }
+            }
+            if (OB_SUCC(ret)) {
+              if (OB_FAIL(ObAiColumnHelper::create_tasks_for_update(
+                  dml_op, *table_schema, rowkey_values, updated_column_ids, upd_ctdef))) {
+                LOG_WARN("failed to create AI column tasks for update", K(ret));
+              }
+            }
+          }
         }
       }
     }

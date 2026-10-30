@@ -189,6 +189,9 @@ SHARE_PUBLIC_HEADER_ROOTS = [
     "rpc/ob_server_task.h",
     "schema/ob_ai_model_sql_service.h",
     "schema/ai_column_catalog.h",
+    "schema/ob_ai_column_schema.h",
+    "schema/ob_ai_column_task.h",
+    "schema/ob_ai_column_dml_handler.h",
     "schema/ob_col_desc.h",
     "schema/ob_column_schema.h",
     "schema/ob_constraint.h",
@@ -255,7 +258,6 @@ SHARE_PUBLIC_HEADER_ROOTS = [
 ]
 
 SHARE_INTERFACE_CLOSURE_HEADERS = [
-    "schema/ob_ai_column_schema.h",
     "ai_service/ob_ai_model_info.h",
     "cache/ob_cache_utils.h",
     "cache/ob_kvcache_hazard_domain.h",
@@ -336,6 +338,7 @@ SHARE_INTERFACE_CLOSURE_HEADERS = [
 ]
 
 SHARE_PRIVATE_HEADERS = [
+    "schema/ob_ai_column_worker.h",
     "datum/ob_datum_funcs_compilation/ob_datum_funcs_compilation.ipp",
     "datum/ob_datum_funcs_impl.h",
     "datum/ob_str_datum_funcs_compilation/ob_str_datum_funcs_compilation.ipp",

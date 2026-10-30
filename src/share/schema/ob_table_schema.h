@@ -1074,7 +1074,9 @@ public:
   int set_rowkey_info(const ObColumnSchemaV2 &column);
   int set_foreign_key_infos(const common::ObIArray<ObForeignKeyInfo> &foreign_key_infos_);
   int set_ai_column_infos(const common::ObIArray<ObAiColumnSchema> &infos);
+  int add_ai_column_info(const ObAiColumnSchema &info);
   const common::ObIArray<ObAiColumnSchema> &get_ai_column_infos() const { return ai_column_infos_; }
+  bool has_ai_columns() const { return ai_column_infos_.count() > 0; }
   void clear_foreign_key_infos();
   int set_trigger_list(const common::ObIArray<uint64_t> &trigger_list);
   int set_simple_index_infos(const common::ObIArray<ObAuxTableMetaInfo> &simple_index_infos);

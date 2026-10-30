@@ -16,6 +16,7 @@
 
 #define USING_LOG_PREFIX SQL_RESV
 #include "sql/resolver/dml/ob_update_resolver.h"
+#include "share/schema/ob_ai_column_schema.h"
 
 namespace oceanbase
 {
@@ -112,6 +113,10 @@ int ObUpdateResolver::resolve(const ParseNode &parse_tree)
     }
   }
 
+  if (OB_SUCC(ret)) {
+    OZ(prepare_ai_column_assignments(tables_assign));
+  }
+
   //add column for table scan, keep rowkey column in the head
   if (OB_SUCC(ret)) {
     for (int64_t i = 0; OB_SUCC(ret) && i < tables_assign.count(); i++) {
@@ -149,6 +154,56 @@ int ObUpdateResolver::resolve(const ParseNode &parse_tree)
     } else if (OB_FAIL(update_stmt->check_dml_source_from_join())) {
     } else if (OB_FAIL(check_safe_update_mode(update_stmt))) {
     } else { /*do nothing*/ }
+  }
+  return ret;
+}
+
+// Keep independent old/new frames: invalidating a new AI result must not erase
+// the old value used to remove vector index entries or roll back the update.
+int ObUpdateResolver::prepare_ai_column_assignments(ObIArray<ObTableAssignment> &tables)
+{
+  int ret = OB_SUCCESS;
+  if (session_info_->is_inner() && !session_info_->is_user_session()) { return ret; }
+  for (int64_t i = 0; OB_SUCC(ret) && i < tables.count(); ++i) {
+    TableItem *item = get_update_stmt()->get_table_item_by_id(tables.at(i).table_id_);
+    const ObTableSchema *schema = nullptr;
+    if (nullptr == item) { ret = OB_ERR_UNEXPECTED; }
+    else { OZ(schema_checker_->get_table_schema(item->ref_id_, schema)); }
+    if (OB_SUCC(ret) && nullptr == schema) { ret = OB_ERR_UNEXPECTED; }
+    if (OB_FAIL(ret) || !schema->has_ai_columns()) { continue; }
+    const auto &definitions = schema->get_ai_column_infos();
+    for (int64_t j = 0; OB_SUCC(ret) && j < tables.at(i).assignments_.count(); ++j) {
+      const ObAssignment &assignment = tables.at(i).assignments_.at(j);
+      for (int64_t k = 0; OB_SUCC(ret) && k < definitions.count(); ++k) {
+        if (!assignment.is_implicit_ && assignment.column_expr_->get_column_id() == definitions.at(k).get_column_id()) {
+          ret = OB_NOT_SUPPORTED;
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "assigning an AI result column");
+        }
+      }
+    }
+    for (int64_t j = 0; OB_SUCC(ret) && j < definitions.count(); ++j) {
+      const auto &definition = definitions.at(j);
+      const uint64_t ids[] = {definition.get_column_id(), definition.get_state_column_id(),
+                             definition.get_request_column_id(), definition.get_result_spec_column_id()};
+      for (int64_t k = 0; OB_SUCC(ret) && k < 4; ++k) {
+        const ObColumnSchemaV2 *column = schema->get_column_schema(ids[k]);
+        ObSEArray<ObColumnRefRawExpr *, 1> refs;
+        ColumnItem *column_item = nullptr;
+        ObAssignment assignment;
+        if (nullptr == column) { ret = OB_ERR_UNEXPECTED; }
+        else { OZ(add_column_to_stmt(*item, *column, refs)); }
+        if (OB_SUCC(ret) && (refs.empty() || nullptr == (column_item = get_update_stmt()->get_column_item_by_id(item->table_id_, ids[k])))) {
+          ret = OB_ERR_UNEXPECTED;
+        }
+        if (OB_SUCC(ret)) {
+          assignment.column_expr_ = column_item->expr_;
+          assignment.is_implicit_ = true;
+          OZ(ObRawExprUtils::build_remove_const_expr(*params_.expr_factory_, *session_info_,
+                                                     column_item->expr_, assignment.expr_));
+          OZ(add_assignment(tables, item, column_item, assignment));
+        }
+      }
+    }
   }
   return ret;
 }

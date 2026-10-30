@@ -55,6 +55,43 @@ ObCreateTableResolver::~ObCreateTableResolver()
 {
 }
 
+int ObCreateTableResolver::resolve_ai_columns(const ParseNode *elements)
+{
+  int ret = OB_SUCCESS;
+  if (nullptr == elements) { return ret; }
+  auto *statement = static_cast<ObCreateTableStmt *>(stmt_);
+  if (nullptr == statement) { return OB_ERR_UNEXPECTED; }
+  ObTableSchema &table = statement->get_create_table_arg().schema_;
+  // This runs before the ordinary final max-column-id assignment.
+  // Preserve the resolver cursor before allocating hidden AI columns.
+  table.set_max_used_column_id(cur_column_id_);
+  for (int64_t i = 0; OB_SUCC(ret) && i < elements->num_child_; ++i) {
+    const ParseNode *element = elements->children_[i];
+    if (nullptr == element || element->type_ != T_COLUMN_DEFINITION || element->num_child_ < 3
+        || nullptr == element->children_[0] || nullptr == element->children_[2]) { continue; }
+    const ParseNode *reference = element->children_[0];
+    if (reference->num_child_ != 3 || nullptr == reference->children_[2]) { return OB_ERR_UNEXPECTED; }
+    const ParseNode *name = reference->children_[2];
+    const auto *stored_column = table.get_column_schema(ObString(name->str_len_, name->str_value_));
+    if (nullptr == stored_column) { return OB_ERR_UNEXPECTED; }
+    ObColumnSchemaV2 column(allocator_);
+    OZ(column.assign(*stored_column));
+    const ParseNode *attributes = element->children_[2];
+    for (int64_t a = 0; OB_SUCC(ret) && a < attributes->num_child_; ++a) {
+      ParseNode *attribute = attributes->children_[a];
+      if (nullptr != attribute && attribute->type_ == T_CONSTR_AI_COLUMN) {
+        if (!column.is_nullable() || column.is_rowkey_column()) { return OB_NOT_SUPPORTED; }
+        ret = resolve_ai_column_attribute(column, attribute, table);
+        if (ret == OB_INVALID_ARGUMENT) {
+          ret = OB_NOT_SUPPORTED;
+          LOG_USER_ERROR(OB_NOT_SUPPORTED, "AI COLUMN dependencies or options");
+        }
+      }
+    }
+  }
+  if (OB_SUCC(ret)) { cur_column_id_ = table.get_max_used_column_id(); }
+  return ret;
+}
 uint64_t ObCreateTableResolver::gen_column_id()
 {
   return ++cur_column_id_;
@@ -305,6 +342,7 @@ int ObCreateTableResolver::resolve(const ParseNode &parse_tree)
             } else if (OB_FAIL(resolve_table_elements(table_element_list_node, index_node_position_list, foreign_key_node_position_list, table_level_constraint_list, RESOLVE_NON_COL))) {
             }
           }
+          if (OB_SUCC(ret)) { ret = resolve_ai_columns(table_element_list_node); }
           if (OB_SUCC(ret)) {
             reset();
             // When the user creates a table without specifying a primary key, it is internally implemented as a new table without a primary key, TableOrganizationFormat specified by the user is currently not supported

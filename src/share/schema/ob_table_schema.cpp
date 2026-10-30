@@ -6330,6 +6330,16 @@ int ObTableSchema::set_ai_column_infos(const ObIArray<ObAiColumnSchema> &infos)
   return ret;
 }
 
+int ObTableSchema::add_ai_column_info(const ObAiColumnSchema &info)
+{
+  int ret = OB_SUCCESS;
+  ObSEArray<ObAiColumnSchema, 4> definitions;
+  if (OB_FAIL(definitions.assign(ai_column_infos_))) {
+  } else if (OB_FAIL(definitions.push_back(info))) {
+  } else if (OB_FAIL(set_ai_column_infos(definitions))) {
+  }
+  return ret;
+}
 int ObTableSchema::set_foreign_key_infos(const ObIArray<ObForeignKeyInfo> &foreign_key_infos)
 {
   int ret = OB_SUCCESS;
