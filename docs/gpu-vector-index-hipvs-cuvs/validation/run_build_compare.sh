@@ -9,6 +9,12 @@
 #
 # The GPU build number is the one that matters for the contest.  The VSAG
 # number is a CPU reference only and must not be compared with the V5 baseline.
+#
+# The scored interval starts immediately before CREATE VECTOR INDEX and ends
+# when the first APPROXIMATE query returns, so `total_s` is the value to use
+# for baseline/candidate ratios.  `create_s` and `first_query_s` are printed
+# separately to show where the time went (and to expose a lazy build that has
+# been pushed past the end of CREATE).
 
 set -Eeuo pipefail
 
@@ -23,6 +29,11 @@ MYSQL=${MYSQL:-mysql --local-infile=1 -h127.0.0.1 -P2881 -uroot -ANB}
 
 probe=$(head -n 1 "$BASE_TSV" | cut -f2)
 [[ -n "$probe" ]] || { echo "empty probe vector" >&2; exit 2; }
+
+seconds()
+{
+  awk -v ns="$1" 'BEGIN { printf "%.3f", ns/1e9 }'
+}
 
 sql()
 {
@@ -48,23 +59,21 @@ measure_backend()
     ef=200
   fi
   load_table
-  local start end build_ns query_start query_end query_ns
+  local start create_end query_end
   start=$(date +%s%N)
   sql "use $DATABASE; create vector index idx on items(v)
        with (distance=l2,type=hnsw,lib=$backend,m=16,ef_construction=200,ef_search=$ef);"
-  end=$(date +%s%N)
-  query_start=$(date +%s%N)
+  create_end=$(date +%s%N)
   sql "select id from $DATABASE.items
        order by l2_distance(v,$probe) approximate limit 10" >/dev/null
   query_end=$(date +%s%N)
-  build_ns=$((end - start))
-  query_ns=$((query_end - query_start))
-  printf '%s\t%s\t%s\t%s\n' "$backend" "$run" \
-    "$(awk -v ns="$build_ns" 'BEGIN { printf "%.3f", ns/1e9 }')" \
-    "$(awk -v ns="$query_ns" 'BEGIN { printf "%.3f", ns/1e9 }')"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$backend" "$run" \
+    "$(seconds $((create_end - start)))" \
+    "$(seconds $((query_end - create_end)))" \
+    "$(seconds $((query_end - start)))"
 }
 
-printf 'backend\trun\tbuild_s\tfirst_query_s\n'
+printf 'backend\trun\tcreate_s\tfirst_query_s\ttotal_s\n'
 for run in $(seq 1 "$REPEAT"); do
   measure_backend cuvs "$run"
   measure_backend vsag "$run"

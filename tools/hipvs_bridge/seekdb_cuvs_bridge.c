@@ -27,15 +27,33 @@ typedef struct {
  * iterations are far past the point where the graph stabilises for a 250K
  * point dataset.  Keep the degree configuration identical and shorten only
  * the refinement phase, which is the dominant cost of the build.  The
- * 256-d path keeps a longer schedule because its recall is the tight one. */
+ * 256-d path keeps a longer schedule because its recall is the tight one.
+ *
+ * All three build knobs remain overridable through the environment so a
+ * Radeon host can validate the recall/speed trade-off without a rebuild.
+ * Invalid values are ignored.  The defaults are the values used for scoring. */
+static size_t sk_env_size(const char* name, size_t fallback, size_t minimum, size_t maximum)
+{
+  const char* value = getenv(name);
+  char* end = NULL;
+  long parsed = 0;
+  if (value == NULL || value[0] == '\0') { return fallback; }
+  parsed = strtol(value, &end, 10);
+  if (end == value || *end != '\0' || parsed < (long)minimum || parsed > (long)maximum) {
+    fprintf(stderr, "[seekdb_cuvs] ignoring invalid %s=%s\n", name, value);
+    return fallback;
+  }
+  return (size_t)parsed;
+}
+
 static size_t sk_nn_descent_niter(long dim)
 {
-  const char* override_value = getenv("SEEKDB_CUVS_NITER");
-  if (override_value != NULL && override_value[0] != '\0') {
-    long value = strtol(override_value, NULL, 10);
-    if (value > 0) { return (size_t)value; }
-  }
-  return dim <= 128 ? 40 : 64;
+  return sk_env_size("SEEKDB_CUVS_NITER", dim <= 128 ? 40 : 64, 1, 1000);
+}
+
+static size_t sk_graph_degree(void)
+{
+  return sk_env_size("SEEKDB_CUVS_GRAPH_DEGREE", 128, 16, 512);
 }
 
 static double sk_now_seconds(void)
@@ -59,11 +77,15 @@ void* seekdb_cuvs_build(const float* base, long n, long dim)
   dset.dl_tensor.shape = ds; dset.dl_tensor.strides = 0; dset.dl_tensor.byte_offset = 0;
 
   const size_t niter = sk_nn_descent_niter(dim);
+  const size_t graph_degree = sk_graph_degree();
+  size_t intermediate_degree =
+      sk_env_size("SEEKDB_CUVS_INTERMEDIATE_DEGREE", 256, graph_degree, 1024);
+  if (intermediate_degree < graph_degree) { intermediate_degree = graph_degree; }
   const double started = sk_now_seconds();
   if (cuvsCagraIndexParamsCreate(&h->ip) != CUVS_SUCCESS) goto fail_res;
   h->ip->build_algo = NN_DESCENT;
-  h->ip->graph_degree = 128;
-  h->ip->intermediate_graph_degree = 256;
+  h->ip->graph_degree = graph_degree;
+  h->ip->intermediate_graph_degree = intermediate_degree;
   h->ip->nn_descent_niter = niter;
   if (cuvsCagraIndexCreate(&h->idx)      != CUVS_SUCCESS) goto fail_ip;
   if (cuvsCagraBuild(h->res, h->ip, &dset, h->idx) != CUVS_SUCCESS) goto fail_idx;
