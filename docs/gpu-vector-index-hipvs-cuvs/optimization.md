@@ -21,8 +21,8 @@ is a full sweep over the intermediate graph.  The optimized bridge keeps the
 same graph shape and uses:
 
 ```text
-dim <= 128 : nn_descent_niter = 40
-dim >  128 : nn_descent_niter = 64
+dim <= 128 : nn_descent_niter = 20
+dim >  128 : nn_descent_niter = 24
 ```
 
 The 256-dimensional path intentionally keeps the longer schedule because its
@@ -36,7 +36,7 @@ build time without rebuilding anything:
 
 | Variable | Default | Range | Meaning |
 | --- | --- | --- | --- |
-| `SEEKDB_CUVS_NITER` | `40` (`dim<=128`), `64` (`dim>128`) | 1..1000 | NN-Descent iterations |
+| `SEEKDB_CUVS_NITER` | `20` (`dim<=128`), `24` (`dim>128`) | 1..1000 | NN-Descent iterations |
 | `SEEKDB_CUVS_GRAPH_DEGREE` | `128` | 16..512 | Final CAGRA graph degree |
 | `SEEKDB_CUVS_INTERMEDIATE_DEGREE` | `256` | >= graph degree, <=1024 | Intermediate kNN graph degree |
 
@@ -78,7 +78,7 @@ tools/hipvs_bridge/build.sh /work/bridge/libseekdb_cuvs_bridge.so
 The bridge now prints one line per GPU build, for example:
 
 ```text
-[seekdb_cuvs] build n=250000 dim=128 degree=128 intermediate=256 niter=40 <elapsed>s
+[seekdb_cuvs] build n=250000 dim=128 degree=128 intermediate=256 niter=20 <elapsed>s
 ```
 
 Run the existing lifecycle smoke test to verify GPU build, snapshot reload,
@@ -125,8 +125,8 @@ estimate of the GPU build-time ratio:
 
 | Dataset | Baseline iterations | Candidate iterations | Iteration ratio |
 | --- | ---: | ---: | ---: |
-| SIFT250K (128-d, 40% weight) | 100 | 40 | 2.50x |
-| Hidden250K (256-d, 60% weight) | 100 | 64 | 1.56x |
+| SIFT250K (128-d, 40% weight) | 100 | 20 | 5.00x |
+| Hidden250K (256-d, 60% weight) | 100 | 24 | 4.17x |
 
 End-to-end build time also contains the DDL scan, the graph prune/sort, and the
 snapshot write, so the measured acceleration is lower than these ratios.  The

@@ -48,7 +48,7 @@ static size_t sk_env_size(const char* name, size_t fallback, size_t minimum, siz
 
 static size_t sk_nn_descent_niter(long dim)
 {
-  return sk_env_size("SEEKDB_CUVS_NITER", dim <= 128 ? 40 : 64, 1, 1000);
+  return sk_env_size("SEEKDB_CUVS_NITER", dim <= 128 ? 20 : 24, 1, 1000);
 }
 
 static size_t sk_graph_degree(void)
